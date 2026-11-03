@@ -173,17 +173,17 @@ fn expand_service_container(input: &DeriveInput) -> syn::Result<TokenStream2> {
         seen.push((key, field));
     }
 
-    let from_ref_impls = fields.named.iter().map(|field| {
-        let name = field.ident.as_ref().expect("named field");
+    let from_ref_impls = fields.named.iter().filter_map(|field| {
+        let name = field.ident.as_ref()?;
         let ty = &field.ty;
-        quote! {
+        Some(quote! {
             #[automatically_derived]
             impl ::oxide_http::__private::axum::extract::FromRef<#ident> for #ty {
                 fn from_ref(container: &#ident) -> Self {
                     ::core::clone::Clone::clone(&container.#name)
                 }
             }
-        }
+        })
     });
 
     let local = format_ident!("__OXIDE_{}_CONTEXT", ident.to_string().to_uppercase());

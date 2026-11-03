@@ -183,7 +183,9 @@ fn parse_columns<'a>(
     let mut pk_index = None;
     let mut default_pk = None;
     for field in &fields.named {
-        let field_ident = field.ident.as_ref().expect("named field");
+        let Some(field_ident) = field.ident.as_ref() else {
+            return Err(syn::Error::new_spanned(field, "expected a named field"));
+        };
         if parse_field_attrs(field)? {
             if pk_index.is_some() {
                 return Err(syn::Error::new_spanned(

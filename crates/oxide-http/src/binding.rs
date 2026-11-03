@@ -60,14 +60,12 @@ where
             .await
             .map_err(|_| not_found(""))?;
 
-        let raw = match params.get(name) {
-            Some(raw) => raw,
-            None if params.len() == 1 => params.values().next().expect("exactly one param"),
-            None => {
-                return Err(OxideHttpError::Internal(format!(
-                    "route has no `{{{name}}}` parameter to bind"
-                )));
-            }
+        // Fall back to the sole parameter when the route names it differently.
+        let sole = params.values().next().filter(|_| params.len() == 1);
+        let Some(raw) = params.get(name).or(sole) else {
+            return Err(OxideHttpError::Internal(format!(
+                "route has no `{{{name}}}` parameter to bind"
+            )));
         };
 
         let id = raw.parse::<T::Id>().map_err(|_| not_found(raw))?;
