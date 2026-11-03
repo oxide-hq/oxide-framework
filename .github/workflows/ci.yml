@@ -54,15 +54,15 @@ jobs:
       - run: cargo doc --workspace --no-deps --locked
 
   msrv:
-    name: MSRV (1.85)
+    name: MSRV (1.88)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: rui314/setup-mold@v1
-      - uses: dtolnay/rust-toolchain@1.85
+      - uses: dtolnay/rust-toolchain@1.88
       - uses: Swatinem/rust-cache@v2
-      # `+1.85` overrides the stable channel pinned in rust-toolchain.toml.
-      - run: cargo +1.85 check --workspace --all-targets --locked
+      # `+1.88` overrides the stable channel pinned in rust-toolchain.toml.
+      - run: cargo +1.88 check --workspace --all-targets --locked
 
   deny:
     name: cargo-deny
@@ -70,3 +70,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          # Install the channel named in rust-toolchain.toml inside the action's container.
+          rust-version: stable
