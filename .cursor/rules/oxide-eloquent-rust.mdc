@@ -132,6 +132,7 @@ These are review blockers.
 | Fallback / redirect routes | `router.fallback(handler)`; `get("/old", redirect_to("/new"))`, `permanent_redirect_to` |
 | Rename resource routes | `api_resource("/photos", Photos, names = "gallery", only = [index, show])`; nest with `resource("/posts/{post}/comments", C)` |
 | Route by domain | `middleware(domain("{account}.example.com")) { .. }`; read the captures with `DomainParams` (`.get("account")`); 404 on other hosts |
+| Scope a child binding to its parent | `impl ScopedBindable<Parent, S> for Child` (`type Id` = slug/enum with `FromStr`), extract `BindIn(parent, child): BindIn<Parent, Child>`; other parent's child is a 404 |
 | Inject a service into a handler | `#[derive(Clone, Service)]` on the service, `#[derive(Clone, ServiceContainer)]` on the app state, then take `mailer: Mailer` as a handler argument |
 | Facade-style access | `AppContext::resolve::<Mailer>()` inside `facade_middleware` |
 | Validate and authorize input | `#[derive(Deserialize, Validate, FormRequest)]` (+ `#[form_request(authorize)]` and `impl Authorize<S>`), extract `Validated<T>` |

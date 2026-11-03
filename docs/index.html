@@ -935,6 +935,16 @@ kbd {
     routes! { middleware(domain("{account}.example.com")) { get("/dashboard", dashboard); } }
     async fn dashboard(domain: DomainParams) -&gt; String { domain.get("account").unwrap_or("none").to_owned() }
   </script>
+  <h2>Scoped bindings and binding keys</h2>
+  <p>A custom key is the binding's <code>Id</code> type: use a slug type and <code>FromStr</code>, and an enum with <code>FromStr</code> gives enum binding. <code>ScopedBindable</code> and <code>BindIn</code> resolve a child inside its parent, so <code>/users/{user}/posts/{post}</code> can't reach another user's post (404).</p>
+  <script type="text/plain" class="code" data-lang="rust">
+    impl ScopedBindable&lt;User, Db&gt; for Post {
+        type Id = Slug;
+        fn param_name() -&gt; &amp;'static str { "post" }
+        async fn bind_in(user: &amp;User, slug: Slug, db: &amp;Db) -&gt; Result&lt;Option&lt;Self&gt;, OxideHttpError&gt; { /* user.posts().where_slug(..) */ }
+    }
+    async fn show(BindIn(user, post): BindIn&lt;User, Post&gt;) -&gt; String { /* ... */ }
+  </script>
 </section>
 
 <section class="page" id="middleware" data-title="Middleware" data-group="The Basics">

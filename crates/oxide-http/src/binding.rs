@@ -76,3 +76,53 @@ where
             .ok_or_else(|| not_found(raw))
     }
 }
+
+/// A model resolved *within* a parent, so `/users/{user}/posts/{post}` can't reach another
+/// user's post (Laravel's scoped bindings).
+pub trait ScopedBindable<P, S>: Sized + Send {
+    /// The parsed route key of the child.
+    type Id: FromStr + Send;
+
+    /// The child's route parameter name, e.g. `"post"`.
+    fn param_name() -> &'static str;
+
+    /// Looks the child up among `parent`'s. `Ok(None)` becomes a `404`.
+    fn bind_in(
+        parent: &P,
+        id: Self::Id,
+        state: &S,
+    ) -> impl Future<Output = Result<Option<Self>, OxideHttpError>> + Send;
+}
+
+/// Extractor resolving the parent `P` from its parameter, then `T` scoped to it.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct BindIn<P, T>(pub P, pub T);
+
+impl<S, P, T> FromRequestParts<S> for BindIn<P, T>
+where
+    S: Send + Sync,
+    P: RouteBindable<S>,
+    T: ScopedBindable<P, S>,
+{
+    type Rejection = OxideHttpError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        let Bind(parent) = Bind::<P>::from_request_parts(parts, state).await?;
+        let name = T::param_name();
+        let Path(params) = Path::<HashMap<String, String>>::from_request_parts(parts, state)
+            .await
+            .map_err(|_| {
+                OxideHttpError::NotFound(format!("No query results for model [{name}]"))
+            })?;
+        let raw = params.get(name).ok_or_else(|| {
+            OxideHttpError::Internal(format!("route has no `{{{name}}}` parameter to bind"))
+        })?;
+        let not_found =
+            || OxideHttpError::NotFound(format!("No query results for model [{name}] {raw}"));
+        let id = raw.parse::<T::Id>().map_err(|_| not_found())?;
+        let child = T::bind_in(&parent, id, state)
+            .await?
+            .ok_or_else(not_found)?;
+        Ok(Self(parent, child))
+    }
+}
