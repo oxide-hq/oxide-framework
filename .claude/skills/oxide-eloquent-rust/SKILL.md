@@ -126,6 +126,7 @@ These are review blockers.
 | Read request input | `input: Input` (query + body merged; `input.string("user.name")`, `.integer`, `.boolean`, `.date`, `.get::<T>`, `.only`, `.filled`); `parts: Parts` with `RequestExt` (`wants_json`, `prefers`, `bearer_token`, `path_is`, `route_is`, `full_url`) |
 | Build a response | `response::json/no_content/download/file/stream`, `redirect::to/route/back/away`, chain `.with_status/.with_header/.with_cookie(Cookie::new(..))` from `ResponseExt`; `Responsable` for types that render per request |
 | Accept file uploads | `uploads: Uploads` (`.file("avatar")`, `.files`, `.field`); `file.validate("avatar", &FileRules::new().image().mimes(&["png"]).max_kb(2048))?`; bound the body with `DefaultBodyLimit` |
+| Constrain a route parameter | `middleware(where_number("id")) { get("/posts/{id}", show); }`; also `where_alpha`, `where_alpha_numeric`, `where_uuid`, `where_in(name, &[..])`, `where_fn(name, |v| ..)` (404 on mismatch) |
 | Inject a service into a handler | `#[derive(Clone, Service)]` on the service, `#[derive(Clone, ServiceContainer)]` on the app state, then take `mailer: Mailer` as a handler argument |
 | Facade-style access | `AppContext::resolve::<Mailer>()` inside `facade_middleware` |
 | Validate and authorize input | `#[derive(Deserialize, Validate, FormRequest)]` (+ `#[form_request(authorize)]` and `impl Authorize<S>`), extract `Validated<T>` |

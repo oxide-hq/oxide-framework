@@ -50,6 +50,7 @@ comparisons throughout. Its source is [`docs/index.html`](docs/index.html), depl
 | Request input & helpers | `Input` (query + body, dot paths, typed getters), `RequestExt` (`wants_json`, `bearer_token`, `path_is`, `route_is`) |
 | Response builders | `response::json/download/file/stream`, `redirect::to/route/back/away`, `Cookie`, `ResponseExt`, `Responsable`, SSE |
 | File uploads | `Uploads` extractor, `UploadedFile`, `FileRules` (`image`, `mimes`, `max_kb`) |
+| Route constraints | `where_number`, `where_alpha`, `where_uuid`, `where_in`, `where_fn` layers (404 on mismatch) |
 | Service container       | `#[derive(ServiceContainer)]` on your state, `#[derive(Service)]` on services |
 | Facades                 | `AppContext::resolve::<Mailer>()` inside `facade_middleware` (task-local)     |
 | `FormRequest`           | `#[derive(FormRequest)]` + the `Validated<T>` extractor                       |

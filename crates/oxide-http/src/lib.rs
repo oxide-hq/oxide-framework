@@ -19,6 +19,7 @@
 extern crate self as oxide_http;
 
 pub mod binding;
+pub mod constraints;
 pub mod container;
 pub mod error;
 pub mod input;
@@ -30,6 +31,9 @@ pub mod testing;
 pub mod upload;
 
 pub use binding::{Bind, RouteBindable};
+pub use constraints::{
+    where_alpha, where_alpha_numeric, where_fn, where_in, where_number, where_uuid,
+};
 pub use container::{ServiceContainer, facade_middleware};
 pub use error::{DomainError, HandledError, OxideHttpError, OxideResult};
 pub use input::Input;
@@ -51,6 +55,9 @@ pub mod __private {
 /// Everything you need for day-to-day Oxide HTTP code: `use oxide_http::prelude::*;`.
 pub mod prelude {
     pub use crate::binding::{Bind, RouteBindable};
+    pub use crate::constraints::{
+        where_alpha, where_alpha_numeric, where_fn, where_in, where_number, where_uuid,
+    };
     pub use crate::container::{ServiceContainer, facade_middleware};
     pub use crate::error::{DomainError, OxideHttpError, OxideResult};
     pub use crate::input::Input;

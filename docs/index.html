@@ -906,6 +906,15 @@ kbd {
   <div class="callout tip">
     <p>An <code>OxideRouter</code> still lets you compose by hand: <code>nest_prefix("/v2", child)</code>, <code>merge(other)</code>, <code>layer(..)</code> and <code>route_layer(..)</code> all keep the route-name registry in sync.</p>
   </div>
+  <h2>Parameter constraints</h2>
+  <p>Like Laravel's <code>whereNumber</code> and friends: a layer that answers 404 when a path parameter doesn't match, so the handler only sees valid values.</p>
+  <script type="text/plain" class="code" data-lang="rust">
+    routes! {
+        middleware(where_number("post")) { get("/posts/{post}", show); }
+        middleware(where_in("status", &amp;["draft", "published"])) { get("/by/{status}", by_status); }
+        // also where_alpha, where_alpha_numeric, where_uuid and where_fn("slug", |v| v.len() &lt; 40)
+    }
+  </script>
 </section>
 
 <section class="page" id="middleware" data-title="Middleware" data-group="The Basics">
