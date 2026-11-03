@@ -23,6 +23,8 @@ everything is checked at compile time. It is built on [Axum 0.8](https://docs.rs
 | Facades                 | `AppContext::resolve::<Mailer>()` inside `facade_middleware` (task-local)     |
 | `FormRequest`           | `#[derive(FormRequest)]` + the `Validated<T>` extractor                       |
 | Route-model binding     | `impl RouteBindable` + the `Bind<T>` extractor                                |
+| Routes & resources      | `routes! { prefix(..) { resource("/posts", PostController); } }`              |
+| Named routes / `route()`| `route!("posts.show", post = 42)` → `/api/v1/posts/42`                        |
 | Error responses         | `OxideHttpError` → Laravel-shaped JSON for 400 / 403 / 404 / 422 / 500        |
 | HTTP tests              | `TestClient` with chainable `assert_*` methods                                |
 
@@ -98,6 +100,41 @@ validation fails:
   "errors": { "title": ["Title must be at least 5 characters"] }
 }
 ```
+
+### Routing
+
+`routes!` is a Laravel-style routing DSL that expands into an `OxideRouter`, a thin wrapper around
+`axum::Router` that also records route names and patterns:
+
+```rust
+let router: OxideRouter<AppContext> = routes! {
+    prefix("/api/v1") {
+        get("/health", health).name("health");
+
+        // index, store, show, update (PUT + PATCH), destroy — named "posts.<action>"
+        resource("/posts", PostController);
+
+        post("/posts/{post}/publish", PostController::publish).name("posts.publish");
+
+        prefix("/admin").name("admin.") {
+            middleware(axum::middleware::from_fn(require_admin)) {
+                resource("/categories", CategoryController, only = [index, show]);
+            }
+        }
+    }
+};
+
+let app = router.with_state(ctx); // OxideRouter<()> — pass to axum::serve(..) via `.into()` or to TestClient
+
+assert_eq!(route!("posts.show", post = 1), "/api/v1/posts/1");
+assert_eq!(route!("posts.index", page = 2), "/api/v1/posts?page=2"); // extra params → query string
+```
+
+A resource controller is a plain struct whose associated `async fn`s are Axum handlers
+(`PostController::index`, `::store`, `::show`, `::update`, `::destroy`). The member parameter is
+the singular of the last segment (`/posts` → `{post}`, `/categories` → `{category}`); override it
+with `param = "..."`. Duplicate route names and paths that don't start with `/` are compile
+errors. Inside handlers, the `UrlGenerator` extractor generates URLs from the same registry.
 
 ### Testing
 

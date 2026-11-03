@@ -9,6 +9,8 @@ use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote};
 use syn::{Data, DeriveInput, Fields, parse_macro_input, parse_quote};
 
+mod routes;
+
 /// Lets a service be extracted directly as a handler argument.
 ///
 /// Generates `impl<S> FromRequestParts<S> for T where T: FromRef<S>`, so a handler can take
@@ -44,6 +46,46 @@ pub fn derive_form_request(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     expand_form_request(&input)
         .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
+/// Declares routes with a Laravel-style DSL and expands into an `oxide_http::routing::OxideRouter`.
+///
+/// ```ignore
+/// let router: OxideRouter<AppContext> = routes! {
+///     get("/", home).name("home");
+///
+///     prefix("/api/v1") {
+///         get("/health", health_check).name("health");
+///         resource("/posts", PostController);                  // index, store, show, update, destroy
+///         post("/posts/{post}/publish", PostController::publish).name("posts.publish");
+///
+///         middleware(axum::middleware::from_fn(require_token)) {
+///             delete("/cache", clear_cache).name("cache.clear");
+///         }
+///     }
+/// };
+/// ```
+///
+/// Statements:
+/// - `get | post | put | patch | delete | head | options(path, handler) [.name("...")];`
+/// - `resource(path, Controller [, param = "post"] [, only = [index, show]] [, except = [destroy]]);`
+///   registers `index`/`store` on `path` and `show`/`update`/`destroy` on `path/{param}`, named
+///   `"<resource>.<action>"` (PATCH is routed to `update` too). The parameter defaults to the
+///   singular of the last path segment (`posts` → `post`).
+/// - `prefix(path) [.name("admin.")] { ... }` prefixes paths (and optionally names); nests freely.
+/// - `middleware(layer) { ... }` applies a Tower layer to the routes inside.
+///
+/// Paths must start with `/`, and duplicate route names are compile errors.
+#[proc_macro]
+pub fn routes(input: TokenStream) -> TokenStream {
+    let parsed = parse_macro_input!(input as routes::Routes);
+    routes::expand(&parsed)
+        .unwrap_or_else(|error| {
+            // `routes!` is an expression: wrap (possibly several) `compile_error!`s in a block.
+            let errors = error.into_compile_error();
+            quote! {{ #errors ::core::unreachable!() }}
+        })
         .into()
 }
 

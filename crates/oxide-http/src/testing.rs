@@ -28,8 +28,11 @@ pub struct TestClient {
 }
 
 impl TestClient {
-    pub fn new(router: Router) -> Self {
-        Self { router }
+    /// Accepts an `axum::Router` or a finalized `OxideRouter<()>`.
+    pub fn new(router: impl Into<Router>) -> Self {
+        Self {
+            router: router.into(),
+        }
     }
 
     pub fn request(&self, method: Method, uri: impl Into<String>) -> TestRequest {
@@ -214,6 +217,11 @@ impl TestResponse {
     }
 
     #[track_caller]
+    pub fn assert_no_content(&self) -> &Self {
+        self.assert_status(StatusCode::NO_CONTENT)
+    }
+
+    #[track_caller]
     pub fn assert_bad_request(&self) -> &Self {
         self.assert_status(StatusCode::BAD_REQUEST)
     }
@@ -231,6 +239,21 @@ impl TestResponse {
     #[track_caller]
     pub fn assert_unprocessable(&self) -> &Self {
         self.assert_status(StatusCode::UNPROCESSABLE_ENTITY)
+    }
+
+    /// Asserts a response header equals `expected`.
+    #[track_caller]
+    pub fn assert_header(&self, name: &str, expected: &str) -> &Self {
+        let actual = self
+            .headers
+            .get(name)
+            .map(|v| v.to_str().unwrap_or("<non-utf8>"));
+        assert_eq!(
+            actual,
+            Some(expected),
+            "header `{name}`: expected {expected:?}, got {actual:?}"
+        );
+        self
     }
 
     /// Asserts the JSON value at `path` equals `expected`.
