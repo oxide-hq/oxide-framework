@@ -32,6 +32,7 @@
 
 mod application;
 mod builtin;
+mod console;
 mod container;
 mod exceptions;
 mod middleware;
@@ -42,6 +43,9 @@ pub use builtin::{
     Client, ClientInfo, ConvertEmptyStringsToNull, CorsConfig, Down, HandleCors,
     PreventRequestsDuringMaintenance, SecurityHeaders, SetCacheHeaders, TrimStrings, TrustHosts,
     TrustProxies, ValidatePostSize, down, is_down, up,
+};
+pub use console::{
+    Command, CommandContext, CommandError, CommandFuture, CommandResult, Console, ExitCode, Output,
 };
 pub use container::{Bindings, Container, Inject, ResolveError, Scope, ServiceKey};
 pub use exceptions::{

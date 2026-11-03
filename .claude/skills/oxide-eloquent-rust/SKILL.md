@@ -131,6 +131,7 @@ These are review blockers.
 | Rename resource routes | `api_resource("/photos", Photos, names = "gallery", only = [index, show])`; nest with `resource("/posts/{post}/comments", C)` |
 | Route by domain | `middleware(domain("{account}.example.com")) { .. }`; read the captures with `DomainParams` (`.get("account")`); 404 on other hosts |
 | Scope a child binding to its parent | `impl ScopedBindable<Parent, S> for Child` (`type Id` = slug/enum with `FromStr`), extract `BindIn(parent, child): BindIn<Parent, Child>`; other parent's child is a 404 |
+| Add an app console command | `impl Command` (`name`, `about`, `handle(ctx)`; `ctx.parse::<ClapParser>()?`, `ctx.out.info/warn/error/table`), register `Application::builder().command(..)`, run `application.console().run(args)`; test with `console.call("name arg").await.assert_success()` |
 | Inject a service into a handler | `#[derive(Clone, Service)]` on the service, `#[derive(Clone, ServiceContainer)]` on the app state, then take `mailer: Mailer` as a handler argument |
 | Facade-style access | `AppContext::resolve::<Mailer>()` inside `facade_middleware` |
 | Validate and authorize input | `#[derive(Deserialize, Validate, FormRequest)]` (+ `#[form_request(authorize)]` and `impl Authorize<S>`), extract `Validated<T>` |

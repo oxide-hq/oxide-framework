@@ -1314,6 +1314,7 @@ dependencies = [
 name = "oxide-foundation"
 version = "0.1.0"
 dependencies = [
+ "clap",
  "http-body-util",
  "oxide-config",
  "oxide-http",
