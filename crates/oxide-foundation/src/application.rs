@@ -261,6 +261,12 @@ impl Application {
 
     /// Serves on `listener` until the process stops.
     pub async fn serve(self, listener: tokio::net::TcpListener) -> std::io::Result<()> {
-        axum::serve(listener, self.router).await
+        // With connect info, middleware such as `TrustProxies` can see the peer's address.
+        axum::serve(
+            listener,
+            self.router
+                .into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .await
     }
 }

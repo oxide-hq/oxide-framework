@@ -39,8 +39,9 @@ mod provider;
 
 pub use application::{Application, ApplicationBuilder};
 pub use builtin::{
-    ConvertEmptyStringsToNull, CorsConfig, HandleCors, SecurityHeaders, SetCacheHeaders,
-    TrimStrings, TrustHosts, ValidatePostSize,
+    Client, ClientInfo, ConvertEmptyStringsToNull, CorsConfig, Down, HandleCors,
+    PreventRequestsDuringMaintenance, SecurityHeaders, SetCacheHeaders, TrimStrings, TrustHosts,
+    TrustProxies, ValidatePostSize, down, is_down, up,
 };
 pub use container::{Bindings, Container, Inject, ResolveError, Scope, ServiceKey};
 pub use exceptions::{

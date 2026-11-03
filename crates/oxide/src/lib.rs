@@ -40,9 +40,11 @@ pub use axum;
 
 pub use oxide_config::{Config, ConfigErrors, ConfigSection, Configuration, Environment};
 pub use oxide_foundation::{
-    Application, Bindings, BootError, ConvertEmptyStringsToNull, CorsConfig, ExceptionHandler,
-    HandleCors, Inject, Middleware, MwNext, SecurityHeaders, ServiceProvider, SetCacheHeaders,
-    TrimStrings, TrustHosts, ValidatePostSize, middleware_fn, route_middleware,
+    Application, Bindings, BootError, Client, ClientInfo, ConvertEmptyStringsToNull, CorsConfig,
+    Down, ExceptionHandler, HandleCors, Inject, Middleware, MwNext,
+    PreventRequestsDuringMaintenance, SecurityHeaders, ServiceProvider, SetCacheHeaders,
+    TrimStrings, TrustHosts, TrustProxies, ValidatePostSize, down, is_down, middleware_fn,
+    route_middleware, up,
 };
 pub use oxide_http::{
     Authorize, Bind, FormRequest, OxideHttpError, OxideResult, OxideRouter, RouteBindable,

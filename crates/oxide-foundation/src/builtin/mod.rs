@@ -6,6 +6,8 @@ mod cache;
 mod cors;
 mod hosts;
 mod limit;
+mod maintenance;
+mod proxies;
 mod security;
 mod strings;
 
@@ -13,6 +15,8 @@ pub use cache::SetCacheHeaders;
 pub use cors::{CorsConfig, HandleCors};
 pub use hosts::TrustHosts;
 pub use limit::ValidatePostSize;
+pub use maintenance::{Down, PreventRequestsDuringMaintenance, down, is_down, up};
+pub use proxies::{Client, ClientInfo, TrustProxies};
 pub use security::SecurityHeaders;
 pub use strings::{ConvertEmptyStringsToNull, TrimStrings};
 
@@ -26,7 +30,7 @@ use oxide_http::{DomainError, OxideHttpError};
 #[error("{message}")]
 struct Rejection {
     status: StatusCode,
-    message: &'static str,
+    message: String,
 }
 
 impl DomainError for Rejection {
@@ -35,7 +39,7 @@ impl DomainError for Rejection {
     }
 
     fn message(&self) -> String {
-        self.message.to_owned()
+        self.message.clone()
     }
 
     fn report(&self) -> bool {
@@ -43,6 +47,10 @@ impl DomainError for Rejection {
     }
 }
 
-fn reject(status: StatusCode, message: &'static str) -> Response {
-    OxideHttpError::domain(Rejection { status, message }).into_response()
+fn reject(status: StatusCode, message: impl Into<String>) -> Response {
+    OxideHttpError::domain(Rejection {
+        status,
+        message: message.into(),
+    })
+    .into_response()
 }
