@@ -38,7 +38,7 @@ impl Network {
     }
 
     fn contains(&self, ip: IpAddr) -> bool {
-        match (self.address, ip) {
+        match (self.address, ip.to_canonical()) {
             (IpAddr::V4(network), IpAddr::V4(ip)) => {
                 let mask = u32::MAX
                     .checked_shl(32 - u32::from(self.prefix))
@@ -128,6 +128,7 @@ impl TrustProxies {
     }
 
     fn trusts(&self, ip: IpAddr) -> bool {
+        // `::ffff:10.0.0.5` is the IPv4 address 10.0.0.5 as a dual-stack socket reports it.
         self.trust_all || self.networks.iter().any(|network| network.contains(ip))
     }
 
@@ -152,7 +153,7 @@ impl TrustProxies {
 
         let mut ip = peer;
         for entry in forwarded(headers, "x-forwarded-for").iter().rev() {
-            let Ok(forwarded) = entry.parse::<IpAddr>() else {
+            let Some(forwarded) = parse_forwarded_address(entry) else {
                 break;
             };
             ip = Some(forwarded);
@@ -171,6 +172,23 @@ impl TrustProxies {
             .or(own_host);
         ClientInfo { ip, scheme, host }
     }
+}
+
+/// An address from `X-Forwarded-For`, which some proxies write with a port or brackets
+/// (`198.51.100.7:51234`, `[2001:db8::1]:443`, `[2001:db8::1]`).
+fn parse_forwarded_address(entry: &str) -> Option<IpAddr> {
+    let entry = entry.trim();
+    if let Ok(ip) = entry.parse::<IpAddr>() {
+        return Some(ip.to_canonical());
+    }
+    if let Ok(socket) = entry.parse::<SocketAddr>() {
+        return Some(socket.ip().to_canonical());
+    }
+    entry
+        .strip_prefix('[')
+        .and_then(|rest| rest.strip_suffix(']'))
+        .and_then(|inner| inner.parse::<IpAddr>().ok())
+        .map(|ip| ip.to_canonical())
 }
 
 /// The comma-separated values of a header (all occurrences, in order).

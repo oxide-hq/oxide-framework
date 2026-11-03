@@ -280,3 +280,63 @@ async fn an_unreadable_maintenance_file_still_means_down_with_defaults() {
     assert_eq!(response.json(), json!({ "message": "Service Unavailable" }));
     assert!(response.headers().get("retry-after").is_none());
 }
+
+#[tokio::test]
+async fn mapped_and_decorated_addresses_are_understood() {
+    let client = proxied(TrustProxies::new(["10.0.0.0/8"]).unwrap()).await;
+    // A dual-stack listener reports the IPv4 proxy as an IPv4-mapped IPv6 address.
+    let mapped = client
+        .get("/whoami")
+        .header("X-Peer", "::ffff:10.0.0.5")
+        .header("X-Forwarded-For", "198.51.100.7")
+        .send()
+        .await
+        .json();
+    assert_eq!(mapped["ip"], "198.51.100.7");
+    // Some proxies append a port or brackets.
+    for (written, expected) in [
+        ("198.51.100.7:51234", "198.51.100.7"),
+        ("[2001:db8::1]:443", "2001:db8::1"),
+        ("[2001:db8::2]", "2001:db8::2"),
+    ] {
+        let response = client
+            .get("/whoami")
+            .header("X-Peer", "10.0.0.5")
+            .header("X-Forwarded-For", written)
+            .send()
+            .await
+            .json();
+        assert_eq!(response["ip"], expected, "{written}");
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn the_maintenance_file_is_private_and_an_unreadable_one_still_means_down() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let file = maintenance_file("private");
+    down(
+        &file,
+        &Down {
+            secret: Some("s".into()),
+            ..Down::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        fs::metadata(&file).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+
+    // Remove every permission (as a botched deploy might): the file exists, so the app is down.
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o000)).unwrap();
+    let readable = fs::read_to_string(&file).is_ok(); // true when running as root
+    let client = guarded(&file).await;
+    let status = client.get("/hello").send().await.status().as_u16();
+    assert_eq!(
+        status, 503,
+        "unreadable (readable as this user: {readable}) is still down"
+    );
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o600)).unwrap();
+}

@@ -1,6 +1,6 @@
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use oxide_http::__private::axum::extract::Request;
@@ -39,7 +39,21 @@ pub fn down(file: &Path, settings: &Down) -> io::Result<()> {
         std::fs::create_dir_all(parent)?;
     }
     let json = serde_json::to_string_pretty(settings).map_err(io::Error::other)?;
-    std::fs::write(file, json)
+    write_private(file, &json)
+}
+
+/// Writes `contents`, readable only by the owner on Unix: the file can hold the bypass secret.
+fn write_private(file: &Path, contents: &str) -> io::Result<()> {
+    use std::io::Write as _;
+
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.mode(0o600);
+    }
+    options.open(file)?.write_all(contents.as_bytes())
 }
 
 /// Takes the app out of maintenance mode. Returns whether it was down.
@@ -88,20 +102,25 @@ impl PreventRequestsDuringMaintenance {
 
     /// The current settings if the app is down, from the file at most once a second.
     fn current(&self) -> Option<Down> {
-        let mut cache = self
+        if let Some((checked, state)) = self
             .cache
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some((checked, state)) = cache.as_ref()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
             && checked.elapsed() < CHECK_EVERY
         {
             return state.clone();
         }
-        let state = std::fs::read_to_string(&self.file).ok().map(|text| {
+        // Read outside the lock so other requests aren't held up; at worst two requests read
+        // the file in the same second.
+        let state = match std::fs::read_to_string(&self.file) {
             // A file that isn't valid settings still means "down", with the defaults.
-            serde_json::from_str::<Down>(&text).unwrap_or_default()
-        });
-        *cache = Some((Instant::now(), state.clone()));
+            Ok(text) => Some(serde_json::from_str::<Down>(&text).unwrap_or_default()),
+            // A file that exists but can't be read (wrong permissions) must not reopen the app.
+            Err(_) => self.file.is_file().then(Down::default),
+        };
+        *self.cache.lock().unwrap_or_else(PoisonError::into_inner) =
+            Some((Instant::now(), state.clone()));
         state
     }
 
