@@ -15,6 +15,7 @@ oxide-http = { path = "crates/oxide-http", version = "0.1.0" }
 oxide-http-macros = { path = "crates/oxide-http-macros", version = "0.1.0" }
 oxide-orm = { path = "crates/oxide-orm", version = "0.1.0" }
 oxide-orm-macros = { path = "crates/oxide-orm-macros", version = "0.1.0" }
+oxide = { path = "crates/oxide", version = "0.1.0" }
 
 # HTTP runtime
 axum = "0.8"
@@ -30,13 +31,14 @@ validator = { version = "0.21", features = ["derive"] }
 thiserror = "2"
 
 # Database
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "macros", "chrono"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "macros", "migrate", "chrono"] }
 chrono = { version = "0.4", features = ["serde"] }
 
 # Proc-macro tooling
 syn = { version = "3", features = ["full"] }
 quote = "1"
 proc-macro2 = "1"
+proc-macro-crate = "3.5"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

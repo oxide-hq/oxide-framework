@@ -7,6 +7,10 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+# PostgreSQL support for `DatabasePool` (SQLite is always available).
+postgres = ["sqlx/postgres"]
+
 [dependencies]
 oxide-http.workspace = true
 oxide-orm-macros.workspace = true

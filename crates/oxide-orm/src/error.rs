@@ -18,6 +18,10 @@ pub enum OrmError {
     /// The database reported an error.
     #[error("database error: {0}")]
     Database(#[from] sqlx::Error),
+
+    /// A migration failed to apply.
+    #[error("migration error: {0}")]
+    Migrate(#[from] sqlx::migrate::MigrateError),
 }
 
 impl OrmError {
@@ -27,12 +31,13 @@ impl OrmError {
     }
 }
 
-/// `NotFound` becomes a `404`; database failures become a `500` without leaking SQL details.
+/// `NotFound` becomes a `404`; database and migration failures become a `500` without leaking
+/// SQL details.
 impl From<OrmError> for OxideHttpError {
     fn from(error: OrmError) -> Self {
         match error {
             OrmError::NotFound { .. } => Self::NotFound(error.to_string()),
-            OrmError::Database(_) => Self::Internal("Server Error".into()),
+            OrmError::Database(_) | OrmError::Migrate(_) => Self::Internal("Server Error".into()),
         }
     }
 }

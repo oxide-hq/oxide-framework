@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use proc_macro::TokenStream;
-use proc_macro2::TokenStream as TokenStream2;
+use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{format_ident, quote};
 use syn::{
     Data, DeriveInput, Fields, GenericArgument, Ident, LitStr, PathArguments, Type, Visibility,
@@ -57,6 +57,7 @@ struct Column<'a> {
 }
 
 fn expand(input: &DeriveInput) -> syn::Result<TokenStream2> {
+    let krate = krate();
     let ident = &input.ident;
     if !input.generics.params.is_empty() {
         return Err(syn::Error::new_spanned(
@@ -116,57 +117,57 @@ fn expand(input: &DeriveInput) -> syn::Result<TokenStream2> {
 
             /// Finds a row by primary key.
             #vis async fn find(
-                db: &::oxide_orm::DatabasePool,
+                db: &#krate::DatabasePool,
                 id: #pk_ty,
-            ) -> ::core::result::Result<::core::option::Option<Self>, ::oxide_orm::OrmError> {
-                ::oxide_orm::model::find::<Self>(db, id).await
+            ) -> ::core::result::Result<::core::option::Option<Self>, #krate::OrmError> {
+                #krate::model::find::<Self>(db, id).await
             }
 
             /// Finds a row by primary key, or fails with `OrmError::NotFound` (a 404 over HTTP).
             #vis async fn find_or_fail(
-                db: &::oxide_orm::DatabasePool,
+                db: &#krate::DatabasePool,
                 id: #pk_ty,
-            ) -> ::core::result::Result<Self, ::oxide_orm::OrmError> {
-                ::oxide_orm::model::find_or_fail::<Self>(db, id).await
+            ) -> ::core::result::Result<Self, #krate::OrmError> {
+                #krate::model::find_or_fail::<Self>(db, id).await
             }
 
             /// Every row.
             #vis async fn all(
-                db: &::oxide_orm::DatabasePool,
-            ) -> ::core::result::Result<::std::vec::Vec<Self>, ::oxide_orm::OrmError> {
+                db: &#krate::DatabasePool,
+            ) -> ::core::result::Result<::std::vec::Vec<Self>, #krate::OrmError> {
                 #builder::new().get(db).await
             }
 
             /// Inserts a row and returns it as stored (`RETURNING *`).
             #vis async fn insert(
-                db: &::oxide_orm::DatabasePool,
+                db: &#krate::DatabasePool,
                 new: &#new_struct,
-            ) -> ::core::result::Result<Self, ::oxide_orm::OrmError> {
-                ::oxide_orm::model::insert::<Self>(db, #insert_values).await
+            ) -> ::core::result::Result<Self, #krate::OrmError> {
+                #krate::model::insert::<Self>(db, #insert_values).await
             }
 
             /// Inserts a row and returns it as stored; by-value form of `insert`.
             #vis async fn create(
-                db: &::oxide_orm::DatabasePool,
+                db: &#krate::DatabasePool,
                 new: #new_struct,
-            ) -> ::core::result::Result<Self, ::oxide_orm::OrmError> {
+            ) -> ::core::result::Result<Self, #krate::OrmError> {
                 Self::insert(db, &new).await
             }
 
             /// Writes every column back to this row (`UPDATE ... WHERE <pk> = ?`).
             #vis async fn save(
                 &self,
-                db: &::oxide_orm::DatabasePool,
-            ) -> ::core::result::Result<(), ::oxide_orm::OrmError> {
-                ::oxide_orm::model::save(db, self).await
+                db: &#krate::DatabasePool,
+            ) -> ::core::result::Result<(), #krate::OrmError> {
+                #krate::model::save(db, self).await
             }
 
             /// Deletes this row.
             #vis async fn delete(
                 &self,
-                db: &::oxide_orm::DatabasePool,
-            ) -> ::core::result::Result<(), ::oxide_orm::OrmError> {
-                ::oxide_orm::model::delete(db, self).await
+                db: &#krate::DatabasePool,
+            ) -> ::core::result::Result<(), #krate::OrmError> {
+                #krate::model::delete(db, self).await
             }
         }
 
@@ -228,12 +229,13 @@ fn parse_columns<'a>(
 
 /// `RouteBindable<S>` for every state `S` that provides a `DatabasePool`.
 fn binding_impl(ident: &Ident, pk_ty: &Type, route_param: &str) -> TokenStream2 {
+    let krate = krate();
     quote! {
         #[automatically_derived]
-        impl<S> ::oxide_orm::__private::oxide_http::binding::RouteBindable<S> for #ident
+        impl<S> #krate::__private::oxide_http::binding::RouteBindable<S> for #ident
         where
             S: ::core::marker::Send + ::core::marker::Sync,
-            ::oxide_orm::DatabasePool: ::oxide_orm::__private::axum::extract::FromRef<S>,
+            #krate::DatabasePool: #krate::__private::axum::extract::FromRef<S>,
         {
             type Id = #pk_ty;
 
@@ -247,10 +249,10 @@ fn binding_impl(ident: &Ident, pk_ty: &Type, route_param: &str) -> TokenStream2 
             ) -> impl ::core::future::Future<
                 Output = ::core::result::Result<
                     ::core::option::Option<Self>,
-                    ::oxide_orm::__private::oxide_http::OxideHttpError,
+                    #krate::__private::oxide_http::OxideHttpError,
                 >,
             > + ::core::marker::Send {
-                let db = <::oxide_orm::DatabasePool as ::oxide_orm::__private::axum::extract::FromRef<S>>::from_ref(state);
+                let db = <#krate::DatabasePool as #krate::__private::axum::extract::FromRef<S>>::from_ref(state);
                 async move {
                     Self::find(&db, id).await.map_err(::core::convert::Into::into)
                 }
@@ -267,22 +269,23 @@ fn model_impl(
     pk: &Column<'_>,
     builder: &Ident,
 ) -> TokenStream2 {
+    let krate = krate();
     let names: Vec<&str> = columns.iter().map(|c| c.name.as_str()).collect();
     let pk_name = &pk.name;
     let pk_ident = pk.ident;
     let pk_ty = pk.ty;
     let value_arms = columns.iter().map(|c| {
         let (col, field) = (&c.name, c.ident);
-        quote!(#col => ::core::option::Option::Some(::oxide_orm::SqlValue::from(::core::clone::Clone::clone(&self.#field))))
+        quote!(#col => ::core::option::Option::Some(#krate::SqlValue::from(::core::clone::Clone::clone(&self.#field))))
     });
     let non_pk_values = columns.iter().filter(|c| c.name != pk.name).map(|c| {
         let (col, field) = (&c.name, c.ident);
-        quote!((#col, ::oxide_orm::SqlValue::from(::core::clone::Clone::clone(&self.#field))))
+        quote!((#col, #krate::SqlValue::from(::core::clone::Clone::clone(&self.#field))))
     });
 
     quote! {
         #[automatically_derived]
-        impl ::oxide_orm::Model for #ident {
+        impl #krate::Model for #ident {
             const NAME: &'static str = #name;
             const TABLE: &'static str = #table;
             const PRIMARY_KEY: &'static str = #pk_name;
@@ -295,14 +298,14 @@ fn model_impl(
                 ::core::clone::Clone::clone(&self.#pk_ident)
             }
 
-            fn value_of(&self, column: &str) -> ::core::option::Option<::oxide_orm::SqlValue> {
+            fn value_of(&self, column: &str) -> ::core::option::Option<#krate::SqlValue> {
                 match column {
                     #(#value_arms,)*
                     _ => ::core::option::Option::None,
                 }
             }
 
-            fn column_values(&self) -> ::std::vec::Vec<(&'static str, ::oxide_orm::SqlValue)> {
+            fn column_values(&self) -> ::std::vec::Vec<(&'static str, #krate::SqlValue)> {
                 ::std::vec![#(#non_pk_values),*]
             }
         }
@@ -315,6 +318,7 @@ fn builder_def(
     builder: &Ident,
     columns: &[Column<'_>],
 ) -> syn::Result<TokenStream2> {
+    let krate = krate();
     let mut generated = Vec::new();
     let methods: Vec<_> = columns
         .iter()
@@ -327,12 +331,12 @@ fn builder_def(
         #[doc = #doc]
         #[derive(Debug, Clone)]
         #vis struct #builder {
-            query: ::oxide_orm::Query<#model>,
+            query: #krate::Query<#model>,
         }
 
         #[automatically_derived]
-        impl ::core::convert::From<::oxide_orm::Query<#model>> for #builder {
-            fn from(query: ::oxide_orm::Query<#model>) -> Self {
+        impl ::core::convert::From<#krate::Query<#model>> for #builder {
+            fn from(query: #krate::Query<#model>) -> Self {
                 Self { query }
             }
         }
@@ -348,7 +352,7 @@ fn builder_def(
         #[allow(dead_code)]
         impl #builder {
             #vis fn new() -> Self {
-                Self { query: ::oxide_orm::Query::new() }
+                Self { query: #krate::Query::new() }
             }
 
             #(#methods)*
@@ -364,48 +368,48 @@ fn builder_def(
             }
 
             /// The underlying untyped query.
-            #vis fn into_query(self) -> ::oxide_orm::Query<#model> {
+            #vis fn into_query(self) -> #krate::Query<#model> {
                 self.query
             }
 
             /// The `SELECT` statement and bound values.
-            #vis fn to_sql(&self) -> (::std::string::String, ::std::vec::Vec<::oxide_orm::SqlValue>) {
+            #vis fn to_sql(&self) -> (::std::string::String, ::std::vec::Vec<#krate::SqlValue>) {
                 self.query.to_sql()
             }
 
             #vis async fn get(
                 self,
-                db: &::oxide_orm::DatabasePool,
-            ) -> ::core::result::Result<::std::vec::Vec<#model>, ::oxide_orm::OrmError> {
+                db: &#krate::DatabasePool,
+            ) -> ::core::result::Result<::std::vec::Vec<#model>, #krate::OrmError> {
                 self.query.get(db).await
             }
 
             #vis async fn first(
                 self,
-                db: &::oxide_orm::DatabasePool,
-            ) -> ::core::result::Result<::core::option::Option<#model>, ::oxide_orm::OrmError> {
+                db: &#krate::DatabasePool,
+            ) -> ::core::result::Result<::core::option::Option<#model>, #krate::OrmError> {
                 self.query.first(db).await
             }
 
             #vis async fn first_or_fail(
                 self,
-                db: &::oxide_orm::DatabasePool,
-            ) -> ::core::result::Result<#model, ::oxide_orm::OrmError> {
+                db: &#krate::DatabasePool,
+            ) -> ::core::result::Result<#model, #krate::OrmError> {
                 self.query.first_or_fail(db).await
             }
 
             #vis async fn count(
                 self,
-                db: &::oxide_orm::DatabasePool,
-            ) -> ::core::result::Result<i64, ::oxide_orm::OrmError> {
+                db: &#krate::DatabasePool,
+            ) -> ::core::result::Result<i64, #krate::OrmError> {
                 self.query.count(db).await
             }
 
             /// Deletes the matching rows and returns how many were removed.
             #vis async fn delete(
                 self,
-                db: &::oxide_orm::DatabasePool,
-            ) -> ::core::result::Result<u64, ::oxide_orm::OrmError> {
+                db: &#krate::DatabasePool,
+            ) -> ::core::result::Result<u64, #krate::OrmError> {
                 self.query.delete(db).await
             }
         }
@@ -436,6 +440,7 @@ fn column_methods<'a>(
     column: &Column<'a>,
     generated: &mut Vec<(Ident, &'a Ident)>,
 ) -> TokenStream2 {
+    let krate = krate();
     let field = column.ident.to_string();
     let field = field.trim_start_matches("r#");
     let col = &column.name;
@@ -447,7 +452,7 @@ fn column_methods<'a>(
         generated.push((method.clone(), column.ident));
         method
     };
-    let value = quote!(::oxide_orm::SqlValue::from(::core::convert::Into::<#ty>::into(value)));
+    let value = quote!(#krate::SqlValue::from(::core::convert::Into::<#ty>::into(value)));
 
     let (eq, not, is_in) = (
         name("where", ""),
@@ -458,12 +463,12 @@ fn column_methods<'a>(
     let mut methods = quote! {
         #[must_use]
         pub fn #eq(self, value: impl ::core::convert::Into<#ty>) -> Self {
-            Self { query: self.query.filter(#col, ::oxide_orm::Op::Eq, #value) }
+            Self { query: self.query.filter(#col, #krate::Op::Eq, #value) }
         }
 
         #[must_use]
         pub fn #not(self, value: impl ::core::convert::Into<#ty>) -> Self {
-            Self { query: self.query.filter(#col, ::oxide_orm::Op::Ne, #value) }
+            Self { query: self.query.filter(#col, #krate::Op::Ne, #value) }
         }
 
         #[must_use]
@@ -473,12 +478,12 @@ fn column_methods<'a>(
 
         #[must_use]
         pub fn #asc(self) -> Self {
-            Self { query: self.query.order_by(#col, ::oxide_orm::Direction::Asc) }
+            Self { query: self.query.order_by(#col, #krate::Direction::Asc) }
         }
 
         #[must_use]
         pub fn #desc(self) -> Self {
-            Self { query: self.query.order_by(#col, ::oxide_orm::Direction::Desc) }
+            Self { query: self.query.order_by(#col, #krate::Direction::Desc) }
         }
     };
 
@@ -511,8 +516,8 @@ fn column_methods<'a>(
                         Self {
                             query: self.query.filter(
                                 #col,
-                                ::oxide_orm::Op::Like,
-                                ::oxide_orm::query::like_pattern(#prefix, text, #postfix),
+                                #krate::Op::Like,
+                                #krate::query::like_pattern(#prefix, text, #postfix),
                             ),
                         }
                     }
@@ -530,7 +535,7 @@ fn column_methods<'a>(
                 methods.extend(quote! {
                     #[must_use]
                     pub fn #method(self, value: #ty) -> Self {
-                        Self { query: self.query.filter(#col, ::oxide_orm::Op::#op, ::oxide_orm::SqlValue::from(value)) }
+                        Self { query: self.query.filter(#col, #krate::Op::#op, #krate::SqlValue::from(value)) }
                     }
                 });
             }
@@ -548,6 +553,7 @@ fn new_struct_def(
     columns: &[Column<'_>],
     pk: &Column<'_>,
 ) -> (TokenStream2, TokenStream2) {
+    let krate = krate();
     // Integer keys are assigned by SQLite (`INTEGER PRIMARY KEY`); other keys are caller-supplied.
     let skip_pk = pk.kind == Kind::Integer;
     let included: Vec<&Column<'_>> = columns
@@ -560,7 +566,7 @@ fn new_struct_def(
     });
     let values = included.iter().map(|c| {
         let (col, field) = (&c.name, c.ident);
-        quote!((#col, ::oxide_orm::SqlValue::from(::core::clone::Clone::clone(&new.#field))))
+        quote!((#col, #krate::SqlValue::from(::core::clone::Clone::clone(&new.#field))))
     });
     let doc =
         format!("A new [`{model}`] row for `{model}::insert`, generated by `#[derive(Model)]`.");
@@ -574,6 +580,31 @@ fn new_struct_def(
         },
         quote!(::std::vec![#(#values),*]),
     )
+}
+
+/// The path generated code uses for `oxide_orm`.
+///
+/// Apps that depend on the `oxide` umbrella crate get `::oxide::orm`, so they need no direct
+/// `oxide-orm` dependency; everything else gets `::oxide_orm` (or its renamed form).
+fn krate() -> TokenStream2 {
+    use proc_macro_crate::{FoundCrate, crate_name};
+
+    let root = |name: &str| Ident::new(name, Span::call_site());
+    match crate_name("oxide") {
+        Ok(FoundCrate::Itself) => quote!(::oxide::orm),
+        Ok(FoundCrate::Name(name)) => {
+            let name = root(&name);
+            quote!(::#name::orm)
+        }
+        Err(_) => match crate_name("oxide-orm") {
+            Ok(FoundCrate::Name(name)) => {
+                let name = root(&name);
+                quote!(::#name)
+            }
+            // `oxide-orm` itself declares `extern crate self as oxide_orm`.
+            Ok(FoundCrate::Itself) | Err(_) => quote!(::oxide_orm),
+        },
+    }
 }
 
 /// Parses `#[model(table = "...", route_param = "...")]` on the struct.

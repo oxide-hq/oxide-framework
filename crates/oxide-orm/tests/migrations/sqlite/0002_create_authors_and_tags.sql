@@ -1,0 +1,7 @@
+CREATE TABLE authors (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    "displayName" TEXT    NOT NULL,
+    mail          TEXT    NOT NULL
+);
+
+CREATE TABLE tags (id INTEGER PRIMARY KEY AUTOINCREMENT);

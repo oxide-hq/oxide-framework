@@ -1,16 +1,42 @@
 //! The [`Model`] trait, generic CRUD helpers used by `#[derive(Model)]`, and relations.
 
-use std::fmt::{Display, Write as _};
+use std::fmt::Display;
 
-use sqlx::Sqlite;
+#[cfg(feature = "postgres")]
+use sqlx::postgres::PgRow;
 use sqlx::sqlite::SqliteRow;
 
 use crate::database::DatabasePool;
 use crate::error::OrmError;
-use crate::query::{Op, Query, SqlValue, arguments, ident};
+use crate::exec;
+use crate::query::{Op, Query, SqlValue, SqlWriter};
+
+/// Decodes rows from every enabled backend: SQLite, plus PostgreSQL with the `postgres` feature.
+///
+/// Implemented automatically for types deriving `sqlx::FromRow`, which is generic over the row
+/// type. With `postgres` on, every field must decode from both (`i64` needs a `BIGINT` column).
+#[cfg(not(feature = "postgres"))]
+pub trait FromDatabaseRow: for<'r> sqlx::FromRow<'r, SqliteRow> {}
+#[cfg(not(feature = "postgres"))]
+impl<T: for<'r> sqlx::FromRow<'r, SqliteRow>> FromDatabaseRow for T {}
+
+/// Decodes rows from every enabled backend: SQLite, plus PostgreSQL with the `postgres` feature.
+///
+/// Implemented automatically for types deriving `sqlx::FromRow`, which is generic over the row
+/// type. With `postgres` on, every field must decode from both (`i64` needs a `BIGINT` column).
+#[cfg(feature = "postgres")]
+pub trait FromDatabaseRow:
+    for<'r> sqlx::FromRow<'r, SqliteRow> + for<'r> sqlx::FromRow<'r, PgRow>
+{
+}
+#[cfg(feature = "postgres")]
+impl<T> FromDatabaseRow for T where
+    T: for<'r> sqlx::FromRow<'r, SqliteRow> + for<'r> sqlx::FromRow<'r, PgRow>
+{
+}
 
 /// A database-backed model. Implemented by `#[derive(Model)]`.
-pub trait Model: Sized + Send + Unpin + for<'r> sqlx::FromRow<'r, SqliteRow> + 'static {
+pub trait Model: Sized + Send + Unpin + FromDatabaseRow + 'static {
     /// The type name, used in `No query results for model [Post] 1` messages.
     const NAME: &'static str;
     /// The table name.
@@ -77,26 +103,30 @@ pub async fn insert<M: Model>(
     db: &DatabasePool,
     values: Vec<(&'static str, SqlValue)>,
 ) -> Result<M, OrmError> {
-    let (columns, values): (Vec<_>, Vec<_>) = values.into_iter().unzip();
-    let sql = if columns.is_empty() {
-        format!("INSERT INTO {} DEFAULT VALUES RETURNING *", ident(M::TABLE))
+    let mut sql = SqlWriter::new(db.driver(), "INSERT INTO ");
+    sql.push_ident(M::TABLE);
+    if values.is_empty() {
+        sql.push(" DEFAULT VALUES");
     } else {
-        let columns = columns
-            .iter()
-            .map(|c| ident(c))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let placeholders = vec!["?"; values.len()].join(", ");
-        format!(
-            "INSERT INTO {} ({columns}) VALUES ({placeholders}) RETURNING *",
-            ident(M::TABLE)
-        )
-    };
-    Ok(
-        sqlx::query_as_with::<Sqlite, M, _>(&sql, arguments(values)?)
-            .fetch_one(db.pool())
-            .await?,
-    )
+        sql.push(" (");
+        for (index, (column, _)) in values.iter().enumerate() {
+            if index > 0 {
+                sql.push(", ");
+            }
+            sql.push_ident(column);
+        }
+        sql.push(") VALUES (");
+        for (index, (_, value)) in values.into_iter().enumerate() {
+            if index > 0 {
+                sql.push(", ");
+            }
+            sql.bind(value);
+        }
+        sql.push(")");
+    }
+    sql.push(" RETURNING *");
+    let (sql, values) = sql.finish();
+    exec::fetch_one(db, &sql, values).await
 }
 
 /// Writes every non-key column of `model` back to its row.
@@ -116,25 +146,26 @@ pub async fn save<M: Model>(db: &DatabasePool, model: &M) -> Result<(), OrmError
             Err(OrmError::not_found(M::NAME, Some(id)))
         };
     }
-    let mut sql = format!("UPDATE {} SET ", ident(M::TABLE));
-    let mut values = Vec::with_capacity(columns.len() + 1);
+    let mut sql = SqlWriter::new(db.driver(), "UPDATE ");
+    sql.push_ident(M::TABLE);
+    sql.push(" SET ");
     for (index, (column, value)) in columns.into_iter().enumerate() {
         if index > 0 {
-            sql.push_str(", ");
+            sql.push(", ");
         }
-        let _ = write!(sql, "{} = ?", ident(column));
-        values.push(value);
+        sql.push_ident(column);
+        sql.push(" = ");
+        sql.bind(value);
     }
-    let _ = write!(sql, " WHERE {} = ?", ident(M::PRIMARY_KEY));
+    sql.push(" WHERE ");
+    sql.push_ident(M::PRIMARY_KEY);
+    sql.push(" = ");
     let key = model.key();
     let id = key.to_string();
-    values.push(key.into());
+    sql.bind(key.into());
 
-    let affected = sqlx::query_with::<Sqlite, _>(&sql, arguments(values)?)
-        .execute(db.pool())
-        .await?
-        .rows_affected();
-    if affected == 0 {
+    let (sql, values) = sql.finish();
+    if exec::execute(db, &sql, values).await? == 0 {
         return Err(OrmError::not_found(M::NAME, Some(id)));
     }
     Ok(())

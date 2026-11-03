@@ -123,7 +123,8 @@ These are review blockers.
 | Load a model from `{post}` | `Bind<Post>` — automatic for `#[derive(Model)]`; `impl RouteBindable<S>` by hand otherwise |
 | Routes | `routes! { prefix(..) { resource(..); get(..).name(..); middleware(layer) { .. } } }` |
 | URLs | `route!("posts.show", post = 1)`, `url_for`, or the `UrlGenerator` extractor in handlers |
-| Database | `DatabasePool` (a `Service`); `#[derive(sqlx::FromRow, Model)]` |
+| Database | `DatabasePool` (a `Service`; `connect(url)` picks SQLite or PostgreSQL from the scheme, `driver()` says which); `#[derive(sqlx::FromRow, Model)]` |
+| Schema | `db.migrate(&sqlx::migrate!("./database/migrations"))`; tests use `DatabasePool::connect_fresh(url)` for an isolated database |
 | Queries | `Post::query().where_published(true).where_title_contains("x").order_by_id_desc().limit(10).get(&db)` |
 | Writes | `Post::insert(&db, &NewPost { .. })`, `post.save(&db)`, `post.delete(&db)` |
 | Errors | `OxideHttpError` (400/403/404/422/500, Laravel-shaped JSON); `OrmError` converts into it |
@@ -131,6 +132,9 @@ These are review blockers.
 
 Model notes: the primary key is the field named `id` or `#[model(primary_key)]`; the table
 defaults to the snake_case plural; column names follow `#[sqlx(rename)]` / `#[sqlx(rename_all)]`.
+With the `postgres` feature, `i64` fields need `BIGINT`/`BIGSERIAL` columns, and LIKE-based
+`_contains` is case-sensitive. Apps depend on the `oxide` umbrella crate and import
+`oxide::prelude::*`.
 
 ## 6. Tests
 
@@ -138,7 +142,7 @@ defaults to the snake_case plural; column names follow `#[sqlx(rename)]` / `#[sq
   with `TestClient` where a route is involved: status, JSON paths
   (`assert_json_path("data.0.title", ..)`), validation errors
   (`assert_validation_error_for("title")`), and the database state afterwards.
-- Use `DatabasePool::connect_in_memory()` plus `execute_schema` for ORM tests.
+- Use `DatabasePool::connect_fresh(url)` plus `migrate` (or `connect_in_memory()` plus `execute_schema`) for ORM tests. ORM cases go in `crates/oxide-orm/tests/suite`, which runs against SQLite and PostgreSQL.
 - Cover the failure paths (404, 403, 422, 500) as well as the happy path.
 - Fixing a bug starts with a test that fails without the fix.
 
