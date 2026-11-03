@@ -524,6 +524,7 @@ kbd {
     <thead><tr><th>Crate</th><th>What it gives you</th></tr></thead>
     <tbody>
       <tr><td><code>oxide</code></td><td>The crate your app depends on. Re-exports <code>oxide::config</code>, <code>oxide::http</code> and <code>oxide::orm</code> and gathers everything into <code>oxide::prelude</code>.</td></tr>
+      <tr><td><code>oxide-foundation</code></td><td>The <code>Application</code> builder, <code>ServiceProvider</code>s and the typed container with singleton, scoped and transient bindings.</td></tr>
       <tr><td><code>oxide-config</code>, <code>oxide-config-macros</code></td><td>Typed configuration: <code>#[derive(Config)]</code>, <code>config/*.toml</code>, <code>.env</code> files, environments and boot-time validation.</td></tr>
       <tr><td><code>oxide</code></td><td>The crate your app depends on. Re-exports <code>oxide::http</code>, <code>oxide::orm</code> and <code>oxide::support</code> and gathers everything into <code>oxide::prelude</code>.</td></tr>
       <tr><td><code>oxide-support</code></td><td>Helpers: <code>CollectionExt</code>, <code>Str</code>, <code>Arr</code>, <code>Number</code>, relative dates, <code>Pipeline</code>, <code>Benchmark</code>, <code>Lottery</code> and <code>retry</code>.</td></tr>
@@ -759,6 +760,31 @@ kbd {
         .provide(AppConfig { name: "Test".into(), debug: true, port: 0 })
         .load()?;
   </script>
+</section>
+
+<section class="page" id="lifecycle" data-title="Request Lifecycle" data-group="Prologue">
+  <p class="eyebrow">Prologue</p>
+  <h1>Request Lifecycle</h1>
+  <p class="lead">Knowing what happens between <code>cargo run</code> and a response makes the rest of the framework easier to reason about. Oxide's lifecycle has a start-up phase that runs once and a request phase that runs for every request.</p>
+
+  <h2>Start-up</h2>
+  <p><code>Application::builder()….build().await</code> assembles the application in four steps:</p>
+  <ol>
+    <li><strong>Register.</strong> Every service provider's <code>register</code> runs, in the order you added them. Providers only bind services here, because other services may not exist yet. Providers that declare <code>provides</code> are deferred and skipped.</li>
+    <li><strong>Override.</strong> Bindings made with <code>.bind(..)</code> on the builder run next, so they replace a provider's defaults. This is how tests swap a contract's implementation.</li>
+    <li><strong>Check.</strong> Anything a provider declared with <code>bindings.require::&lt;T&gt;()</code> must now be bound. If not, the build fails with every missing service listed at once.</li>
+    <li><strong>Boot.</strong> The container is complete, and each provider's <code>boot</code> runs in order. A provider may resolve services, read configuration or check a connection here. A failure stops the build and names the provider.</li>
+  </ol>
+  <p>Then the providers' routes and the builder's routes are merged, and a middleware that starts a request scope is layered on top.</p>
+
+  <h2>Each request</h2>
+  <ol>
+    <li>The scope middleware gives the request its own <code>Scope</code>.</li>
+    <li>Your middleware runs, outermost first, and the router picks a handler.</li>
+    <li>Extractors run: <code>Inject&lt;T&gt;</code> resolves services from the scope (scoped services are built once for this request), and <code>Config&lt;T&gt;</code>, <code>Validated&lt;T&gt;</code> and <code>Bind&lt;T&gt;</code> do their jobs. A failing extractor ends the request with its own error response.</li>
+    <li>The handler runs, and its response flows back out through the middleware.</li>
+  </ol>
+  <p>See <a href="#/providers">Service Providers</a> for the container itself and <a href="#/configuration">Configuration</a> for what is loaded before any of this.</p>
 </section>
 
 <!-- ================================================================ THE BASICS -->
@@ -1113,6 +1139,90 @@ kbd {
   <div class="callout warning">
     <p>Never hold a <code>std::sync::MutexGuard</code> across an <code>.await</code>. Lock, read or write, and drop the guard before awaiting, or switch to <code>tokio::sync::Mutex</code> if the lock truly has to span an await point.</p>
   </div>
+</section>
+
+<section class="page" id="providers" data-title="Service Providers" data-group="The Basics">
+  <p class="eyebrow">The Basics</p>
+  <h1>Service Providers</h1>
+  <p class="lead">Providers are where an application, or a package, wires itself in: they bind services, run start-up work and contribute routes. An <code>Application</code> assembles them in order and hands you something you can serve or test.</p>
+
+  <h2>Two containers, one rule</h2>
+  <p><a href="#/container"><code>#[derive(ServiceContainer)]</code></a> stays the zero-cost way to share services you know when you write the state struct. The container here is for what is only known at boot: <strong>trait-object contracts</strong>, services registered by packages, and per-request services. Handlers can use both.</p>
+
+  <h2>A provider</h2>
+  <div class="compare">
+    <script type="text/plain" data-lang="php">
+      class MailServiceProvider extends ServiceProvider
+      {
+          public function register(): void
+          {
+              $this->app->singleton(Mailer::class, SmtpMailer::class);
+          }
+
+          public function boot(): void { /* ... */ }
+      }
+    </script>
+    <script type="text/plain" data-lang="rust">
+      struct MailProvider;
+
+      impl ServiceProvider for MailProvider {
+          fn register(&self, bindings: &mut Bindings) {
+              bindings.singleton_arc::<dyn Mailer>(Arc::new(SmtpMailer::new()));
+          }
+
+          fn routes(&self, _app: &App) -> Option<Router> {
+              Some(Router::new().route("/mail/test", get(send_test_mail)))
+          }
+      }
+
+      async fn send_test_mail(mailer: Inject<dyn Mailer>) -> &'static str {
+          mailer.send("ann@example.com");
+          "sent"
+      }
+    </script>
+  </div>
+  <p>Declare a contract trait with <code>Send + Sync</code> supertraits (<code>trait Mailer: Send + Sync</code>) so <code>dyn Mailer</code> can live in the container.</p>
+
+  <h2>Building the application</h2>
+  <script type="text/plain" data-lang="rust">
+    let app = Application::builder()
+        .config(config::load()?)
+        .provider(DatabaseProvider)
+        .provider(MailProvider)
+        .routes(routes::api())
+        .build()
+        .await?;
+
+    app.serve(tokio::net::TcpListener::bind("127.0.0.1:3000").await?).await?;
+  </script>
+  <p>In a test, <code>app.test_client()</code> gives you a <code>TestClient</code> over the same application, and <code>.bind(..)</code> on the builder swaps an implementation:</p>
+  <script type="text/plain" data-lang="rust">
+    let app = Application::builder()
+        .provider(MailProvider)
+        .bind(|bindings| {
+            bindings.singleton_arc::<dyn Mailer>(Arc::new(FakeMailer::default()));
+        })
+        .build()
+        .await?;
+  </script>
+
+  <h2>Lifetimes</h2>
+  <table>
+    <thead><tr><th>Method</th><th>Built</th><th>Use for</th></tr></thead>
+    <tbody>
+      <tr><td><code>singleton(value)</code>, <code>singleton_arc::&lt;T&gt;(arc)</code></td><td>once, now</td><td>Pools, clients, configuration</td></tr>
+      <tr><td><code>lazy(|scope| ..)</code></td><td>once, on first use</td><td>Expensive services that may never be needed</td></tr>
+      <tr><td><code>scoped(|scope| ..)</code></td><td>once per request</td><td>The current user, a request-wide unit of work</td></tr>
+      <tr><td><code>transient(|scope| ..)</code></td><td>every resolve</td><td>Cheap, stateful helpers</td></tr>
+    </tbody>
+  </table>
+  <p>A later binding for the same type replaces an earlier one. Factories receive the <code>Scope</code> and can resolve their own dependencies. A loop between services is reported as an error naming the path (<code>A -&gt; B -&gt; A</code>), and a scoped service asked for outside a request is an error too. Inside a request, <code>Inject&lt;T&gt;</code> is the extractor; elsewhere use <code>container.resolve::&lt;T&gt;()</code>. Resolution failures in a handler answer a plain <code>500 Server Error</code>, and the details go to stderr.</p>
+
+  <h2>Required and deferred services</h2>
+  <p>A provider can declare what it needs with <code>bindings.require::&lt;dyn Mailer&gt;()</code>. If nobody binds it, <code>build()</code> fails and lists everything missing, instead of the first request failing. A provider that returns keys from <code>provides()</code> is <strong>deferred</strong>: it registers only when one of those services is first resolved, and its <code>boot</code> and <code>routes</code> never run. Use that for self-contained services that need no start-up work.</p>
+
+  <h2>Packages</h2>
+  <p>A package ships a provider, and its users add it with <code>.provider(..)</code>. The provider binds the package's defaults (which the application can override with <code>.bind(..)</code>), reads its settings through <code>app.config::&lt;Section&gt;()</code> and contributes routes. Copying a package's config and migration stubs into the application arrives with the console commands.</p>
 </section>
 
 <section class="page" id="form-requests" data-title="Form Requests" data-group="The Basics">

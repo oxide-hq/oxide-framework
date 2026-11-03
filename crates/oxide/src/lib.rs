@@ -2,7 +2,7 @@
 //!
 //! Laravel's developer ergonomics with compile-time safe Rust, on Axum and sqlx. This crate is
 //! the single dependency an Oxide application needs: it re-exports configuration as [`config`]
-//! (`oxide-config`), the HTTP layer as [`http`] (`oxide-http`), the ORM as [`orm`] (`oxide-orm`)
+//! (`oxide-config`), the application bootstrap as [`foundation`] (`oxide-foundation`), the HTTP layer as [`http`] (`oxide-http`), the ORM as [`orm`] (`oxide-orm`)
 //! and the helpers as [`support`] (`oxide-support`), and gathers the everyday items
 //! into one prelude.
 //!
@@ -29,6 +29,7 @@
 extern crate self as oxide;
 
 pub use oxide_config as config;
+pub use oxide_foundation as foundation;
 pub use oxide_http as http;
 pub use oxide_orm as orm;
 pub use oxide_support as support;
@@ -37,6 +38,7 @@ pub use oxide_support as support;
 pub use axum;
 
 pub use oxide_config::{Config, ConfigErrors, ConfigSection, Configuration, Environment};
+pub use oxide_foundation::{Application, Bindings, BootError, Inject, ServiceProvider};
 pub use oxide_http::{
     Authorize, Bind, FormRequest, OxideHttpError, OxideResult, OxideRouter, RouteBindable,
     ServiceContainer, UrlGenerator, Validated, facade_middleware, route, routes, url_for,
@@ -49,6 +51,7 @@ pub mod prelude {
     pub use axum::Json;
     pub use axum::http::StatusCode;
     pub use oxide_config::prelude::*;
+    pub use oxide_foundation::{Application, Bindings, BootError, Inject, ServiceProvider};
     pub use oxide_http::prelude::*;
     pub use oxide_orm::prelude::*;
     pub use oxide_support::prelude::*;
