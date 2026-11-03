@@ -16,6 +16,11 @@ use oxide_http::{DomainError, OxideHttpError, OxideResult};
 use oxide_log::{Logger, LoggingConfig, MemoryWriter, tracing};
 use serde_json::{Value, json};
 
+/// The handler's log call is one `tracing` callsite shared by every test here, and `tracing`
+/// caches whether a callsite is enabled across all loggers installed at the time. Running these
+/// tests one at a time keeps another test's logger from hiding a report.
+static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 async fn broken() -> OxideResult<&'static str> {
     Err(OxideHttpError::server(io::Error::other("database is down")))
 }
@@ -28,6 +33,20 @@ async fn hostile() -> OxideResult<&'static str> {
     Err(OxideHttpError::BadRequest(
         "<script>alert('x')</script>".into(),
     ))
+}
+
+async fn invalid() -> OxideResult<&'static str> {
+    use oxide_http::__private::validator::{ValidationError, ValidationErrors};
+    let mut errors = ValidationErrors::new();
+    errors.add(
+        "title",
+        ValidationError::new("required").with_message("The title field is required.".into()),
+    );
+    errors.add(
+        "body",
+        ValidationError::new("length").with_message("<b>Too short</b>".into()),
+    );
+    Err(errors.into())
 }
 
 async fn fine() -> &'static str {
@@ -78,6 +97,7 @@ fn routes() -> Router {
         .route("/missing", get(missing))
         .route("/hostile", get(hostile))
         .route("/fine", get(fine))
+        .route("/invalid", get(invalid))
         .route("/payment", get(payment))
         .route("/out-of-sync", get(out_of_sync))
 }
@@ -107,6 +127,7 @@ impl ExceptionHandler for Counting {
 
 #[tokio::test]
 async fn only_server_errors_are_reported_by_default() {
+    let _serial = SERIAL.lock().await;
     let reports = Arc::new(AtomicU32::new(0));
     let handler = Counting {
         reports: Arc::clone(&reports),
@@ -129,6 +150,7 @@ async fn only_server_errors_are_reported_by_default() {
 
 #[tokio::test]
 async fn dont_report_silences_a_status() {
+    let _serial = SERIAL.lock().await;
     let sink = MemoryWriter::new();
     let config = LoggingConfig::stderr("info");
     let (dispatch, _guard) = Logger::builder(&config)
@@ -151,6 +173,7 @@ async fn dont_report_silences_a_status() {
 
 #[tokio::test]
 async fn reports_carry_the_cause_and_the_request_context() {
+    let _serial = SERIAL.lock().await;
     let sink = MemoryWriter::new();
     let config = LoggingConfig::stderr("info");
     let (dispatch, _guard) = Logger::builder(&config)
@@ -188,6 +211,7 @@ async fn reports_carry_the_cause_and_the_request_context() {
 
 #[tokio::test]
 async fn api_clients_keep_the_json_contract_and_browsers_get_html() {
+    let _serial = SERIAL.lock().await;
     let app = app(Application::builder()).await;
     let client = app.test_client();
 
@@ -218,6 +242,7 @@ async fn api_clients_keep_the_json_contract_and_browsers_get_html() {
 
 #[tokio::test]
 async fn html_pages_escape_what_the_message_contains() {
+    let _serial = SERIAL.lock().await;
     let app = app(Application::builder()).await;
     let page = app
         .test_client()
@@ -233,17 +258,19 @@ async fn html_pages_escape_what_the_message_contains() {
     );
 }
 
+async fn chain(builder: oxide_foundation::ApplicationBuilder) -> Value {
+    app(builder)
+        .await
+        .test_client()
+        .get("/broken")
+        .send()
+        .await
+        .json()
+}
+
 #[tokio::test]
 async fn debug_detail_appears_only_in_a_local_environment_with_debug_on() {
-    async fn chain(builder: oxide_foundation::ApplicationBuilder) -> Value {
-        app(builder)
-            .await
-            .test_client()
-            .get("/broken")
-            .send()
-            .await
-            .json()
-    }
+    let _serial = SERIAL.lock().await;
 
     let local = chain(
         Application::builder()
@@ -295,6 +322,7 @@ async fn debug_detail_appears_only_in_a_local_environment_with_debug_on() {
 
 #[tokio::test]
 async fn domain_errors_choose_their_status_message_and_reporting() {
+    let _serial = SERIAL.lock().await;
     let reports = Arc::new(AtomicU32::new(0));
     let app = app(Application::builder().exception_handler(Counting {
         reports: Arc::clone(&reports),
@@ -348,6 +376,7 @@ impl ExceptionHandler for Teapot {
 
 #[tokio::test]
 async fn a_custom_handler_can_replace_a_response_or_delegate() {
+    let _serial = SERIAL.lock().await;
     let app = app(Application::builder().exception_handler(Teapot)).await;
     let client = app.test_client();
     let replaced = client.get("/missing").send().await;
@@ -358,4 +387,75 @@ async fn a_custom_handler_can_replace_a_response_or_delegate() {
         client.get("/hostile").send().await.json(),
         json!({ "message": "<script>alert('x')</script>" })
     );
+}
+
+#[tokio::test]
+async fn validation_errors_keep_their_fields_in_the_html_page() {
+    let _serial = SERIAL.lock().await;
+    let app = app(Application::builder()).await;
+    let client = app.test_client();
+    let page = client
+        .get("/invalid")
+        .header("Accept", "text/html")
+        .send()
+        .await;
+    assert_eq!(page.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let html = page.text();
+    assert!(
+        html.contains("<li><strong>title</strong>: The title field is required.</li>"),
+        "{html}"
+    );
+    assert!(
+        html.contains("&lt;b&gt;Too short&lt;/b&gt;"),
+        "messages are escaped: {html}"
+    );
+    // The JSON contract is still Laravel's.
+    let json = client.get("/invalid").send().await.json();
+    assert_eq!(
+        json["errors"]["title"],
+        json!(["The title field is required."])
+    );
+}
+
+#[tokio::test]
+async fn error_responses_vary_on_accept_and_successes_are_untouched() {
+    let _serial = SERIAL.lock().await;
+    let app = app(Application::builder()).await;
+    let client = app.test_client();
+    for accept in ["text/html", "application/json"] {
+        let response = client.get("/missing").header("Accept", accept).send().await;
+        assert_eq!(
+            response.headers().get("vary").unwrap(),
+            "Accept",
+            "{accept}"
+        );
+    }
+    assert!(
+        client
+            .get("/fine")
+            .send()
+            .await
+            .headers()
+            .get("vary")
+            .is_none()
+    );
+}
+
+#[tokio::test]
+async fn quality_values_pick_the_representation() {
+    let _serial = SERIAL.lock().await;
+    let app = app(Application::builder()).await;
+    let client = app.test_client();
+    let json = client
+        .get("/missing")
+        .header("Accept", "text/html;q=0.1, application/json")
+        .send()
+        .await;
+    assert_eq!(json.json(), json!({ "message": "No such post." }));
+    let html = client
+        .get("/missing")
+        .header("Accept", "application/json;q=0.2, text/html")
+        .send()
+        .await;
+    assert!(html.text().contains("<h1>404</h1>"));
 }

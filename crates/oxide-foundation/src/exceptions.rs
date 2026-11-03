@@ -6,6 +6,7 @@
 //! handler render the final response, and otherwise changes nothing.
 
 use std::error::Error as _;
+use std::fmt::Write as _;
 use std::sync::Arc;
 
 use oxide_http::__private::axum::Json;
@@ -13,6 +14,7 @@ use oxide_http::__private::axum::extract::{Request, State};
 use oxide_http::__private::axum::http::{HeaderValue, StatusCode, header};
 use oxide_http::__private::axum::middleware::Next;
 use oxide_http::__private::axum::response::{IntoResponse, Response};
+use oxide_http::error::flatten_validation_errors;
 use oxide_http::{HandledError, OxideHttpError};
 use oxide_log::tracing;
 use serde_json::{Value, json};
@@ -26,31 +28,46 @@ pub struct RequestInfo {
     pub wants_html: bool,
 }
 
-impl RequestInfo {
-    fn of(request: &Request) -> Self {
-        let accept = request
-            .headers()
-            .get(header::ACCEPT)
-            .and_then(|value| value.to_str().ok())
-            .unwrap_or_default();
-        Self {
-            method: request.method().to_string(),
-            path: request.uri().path().to_owned(),
-            wants_html: prefers_html(accept),
+/// Whether the client prefers HTML to JSON, by `q` value and then by order: browsers send
+/// `text/html` first, API clients send `application/json` or `*/*`.
+fn prefers_html(accept: &str) -> bool {
+    // (quality in thousandths, position); the best entry of each kind.
+    let mut html: Option<(u32, usize)> = None;
+    let mut json: Option<(u32, usize)> = None;
+    for (position, range) in accept.split(',').enumerate() {
+        let mut parts = range.split(';');
+        let media = parts.next().unwrap_or_default().trim().to_ascii_lowercase();
+        let quality = parts
+            .find_map(|parameter| {
+                parameter
+                    .trim()
+                    .strip_prefix("q=")?
+                    .trim()
+                    .parse::<f32>()
+                    .ok()
+            })
+            .map_or(1000, thousandths);
+        let slot = match media.as_str() {
+            "text/html" => &mut html,
+            kind if kind == "application/json" || kind.ends_with("+json") => &mut json,
+            _ => continue,
+        };
+        if slot.is_none_or(|(best, _)| quality > best) {
+            *slot = Some((quality, position));
         }
+    }
+    match (html, json) {
+        (Some((html_q, html_at)), Some((json_q, json_at))) => {
+            html_q > 0 && (html_q > json_q || (html_q == json_q && html_at < json_at))
+        }
+        (Some((html_q, _)), None) => html_q > 0,
+        _ => false,
     }
 }
 
-/// Browsers send `text/html` first; API clients send `application/json` or `*/*`.
-fn prefers_html(accept: &str) -> bool {
-    let accept = accept.to_ascii_lowercase();
-    let Some(html) = accept.find("text/html") else {
-        return false;
-    };
-    ["application/json", "+json"]
-        .iter()
-        .filter_map(|json| accept.find(json))
-        .all(|json| html < json)
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // clamped to 0..=1000
+fn thousandths(quality: f32) -> u32 {
+    (quality.clamp(0.0, 1.0) * 1000.0).round() as u32
 }
 
 /// The request and the application's debug setting, passed to every hook.
@@ -209,6 +226,21 @@ fn html_page(error: &OxideHttpError, debug: bool) -> String {
         .as_str()
         .unwrap_or_default()
         .to_owned();
+    let fields = match error {
+        OxideHttpError::Validation(errors) => {
+            let mut items = String::new();
+            for (field, messages) in flatten_validation_errors(errors) {
+                let _ = write!(
+                    items,
+                    "<li><strong>{}</strong>: {}</li>",
+                    escape(&field),
+                    escape(&messages.join(" "))
+                );
+            }
+            format!("<ul>{items}</ul>")
+        }
+        _ => String::new(),
+    };
     let detail = if debug {
         format!(
             "<h2>Exception</h2><pre>{}</pre>",
@@ -224,7 +256,7 @@ fn html_page(error: &OxideHttpError, debug: bool) -> String {
          <style>body{{font-family:system-ui,sans-serif;margin:0;display:grid;place-items:center;min-height:100vh;color:#222}}\
          main{{max-width:40rem;padding:2rem}}h1{{font-size:4rem;margin:0}}.reason{{color:#666;margin:.25rem 0 1rem}}\
          pre{{background:#f4f4f4;padding:1rem;overflow:auto}}</style></head>\
-         <body><main><h1>{code}</h1><p class=\"reason\">{reason}</p><p>{message}</p>{detail}</main></body></html>",
+         <body><main><h1>{code}</h1><p class=\"reason\">{reason}</p><p>{message}</p>{fields}{detail}</main></body></html>",
         code = status.as_u16(),
         reason = escape(reason),
         message = escape(&message),
@@ -257,10 +289,23 @@ pub(crate) async fn exception_middleware(
     request: Request,
     next: Next,
 ) -> Response {
-    let info = RequestInfo::of(&request);
+    // Cheap clones now; the owned `RequestInfo` is built only if the response is an error.
+    let method = request.method().clone();
+    let uri = request.uri().clone();
+    let accept = request.headers().get(header::ACCEPT).cloned();
     let response = next.run(request).await;
     let Some(HandledError(error)) = response.extensions().get::<HandledError>().cloned() else {
         return response;
+    };
+    let info = RequestInfo {
+        method: method.to_string(),
+        path: uri.path().to_owned(),
+        wants_html: prefers_html(
+            accept
+                .as_ref()
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default(),
+        ),
     };
     let context = ErrorContext {
         request: &info,
@@ -269,7 +314,23 @@ pub(crate) async fn exception_middleware(
     if state.handler.should_report(&error) {
         state.handler.report(&error, &context);
     }
-    state.handler.render(&error, &context, response)
+    let mut response = state.handler.render(&error, &context, response);
+    // The body depends on `Accept`, so caches must keep the variants apart.
+    let varies_on_accept = response
+        .headers()
+        .get_all(header::VARY)
+        .iter()
+        .any(|value| {
+            value
+                .to_str()
+                .is_ok_and(|v| v.to_ascii_lowercase().contains("accept") || v.trim() == "*")
+        });
+    if !varies_on_accept {
+        response
+            .headers_mut()
+            .append(header::VARY, HeaderValue::from_static("Accept"));
+    }
+    response
 }
 
 #[cfg(test)]
@@ -287,6 +348,13 @@ mod tests {
         assert!(!prefers_html("application/json"));
         assert!(!prefers_html("application/vnd.api+json"));
         assert!(!prefers_html(""));
+        // Quality values decide before order does.
+        assert!(!prefers_html("text/html;q=0.1, application/json"));
+        assert!(prefers_html("application/json;q=0.5, text/html"));
+        assert!(prefers_html("text/html;q=0.9, application/json;q=0.8"));
+        assert!(!prefers_html("text/html;q=0, */*"));
+        // Media types are case-insensitive; an unreadable q counts as 1.
+        assert!(prefers_html("TEXT/HTML;q=oops, application/json"));
     }
 
     #[test]

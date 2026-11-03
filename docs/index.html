@@ -1445,7 +1445,7 @@ kbd {
   <p>The error's own <code>Display</code> (above, with the order number) stays in your logs. <code>report()</code> decides whether it is logged; the default is server errors only.</p>
 
   <h2>The exception handler</h2>
-  <p>An <code>Application</code> sends every error response through an <code>ExceptionHandler</code>, the Oxide version of Laravel's exception handler. The default handler <strong>reports</strong> server errors (one <code>error</code> log line with the cause chain, the request, and the request id from the <a href="#/logging">log context</a>) and never 4xx errors, and it <strong>renders</strong> JSON for API clients and a small HTML page for browsers, chosen from the <code>Accept</code> header. Both hooks are replaceable:</p>
+  <p>An <code>Application</code> sends every error response through an <code>ExceptionHandler</code>, the Oxide version of Laravel's exception handler. The default handler <strong>reports</strong> server errors (one <code>error</code> log line with the cause chain, the request, and the request id from the <a href="#/logging">log context</a>) and never 4xx errors, and it <strong>renders</strong> JSON for API clients and a small HTML page for browsers, chosen from the <code>Accept</code> header (by <code>q</code> value, then order) and marked <code>Vary: Accept</code>. A 422 page lists the failed fields. Both hooks are replaceable:</p>
   <script type="text/plain" data-lang="rust">
     struct MyHandler;
 
@@ -1468,6 +1468,9 @@ kbd {
         // or: .exception_handler(DefaultExceptionHandler::new().dont_report(StatusCode::SERVICE_UNAVAILABLE))
         .debug(app_config.debug)
   </script>
+  <div class="callout note">
+    <p>The handler sees errors that are <code>OxideHttpError</code>s. Axum's own extractor rejections (for example a malformed body for a plain <code>Json&lt;T&gt;</code>) are not, so they bypass it; use <code>Validated&lt;T&gt;</code>, which reports problems through the Laravel error contract.</p>
+  </div>
   <div class="callout warning">
     <p><code>.debug(true)</code> adds the exception chain to JSON and HTML responses, but only when the environment is <code>local</code>. In staging or production, or when no configuration was supplied, it does nothing, so a stray debug flag can't leak internals.</p>
   </div>
