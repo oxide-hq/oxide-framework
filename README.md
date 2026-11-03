@@ -225,6 +225,9 @@ the individual crates:
 oxide = { git = "https://github.com/oxide-hq/oxide-framework" } # features = ["postgres"]
 ```
 
+Use `features = ["postgres-tls"]` for PostgreSQL servers that require TLS (`sslmode=require`); plain
+`postgres` connects without TLS.
+
 The `serde`, `Validate` and `sqlx::FromRow` derives come from those crates and refer to them by
 name, so your crate also needs `serde`, `validator` (with `derive`) and `sqlx` as direct
 dependencies.

@@ -1,0 +1,24 @@
+[package]
+name = "oxide-umbrella-test"
+description = "Test fixture: an app that depends on `oxide` alone, so derive paths must resolve through the umbrella crate."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+# Deliberately no `oxide-http` or `oxide-orm`: with either one here the derives would emit
+# `::oxide_http` / `::oxide_orm` paths and this test could no longer catch a regression.
+[dependencies]
+oxide.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+validator.workspace = true
+sqlx.workspace = true
+
+[lints]
+workspace = true

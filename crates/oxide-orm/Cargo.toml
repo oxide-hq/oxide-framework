@@ -10,6 +10,9 @@ repository.workspace = true
 [features]
 # PostgreSQL support for `DatabasePool` (SQLite is always available).
 postgres = ["sqlx/postgres"]
+# TLS for PostgreSQL connections (`sslmode=require`, `verify-full`), with rustls and the
+# system's root certificates. Without it, connections are plaintext only.
+postgres-tls = ["postgres", "sqlx/tls-rustls-ring-native-roots"]
 
 [dependencies]
 oxide-http.workspace = true

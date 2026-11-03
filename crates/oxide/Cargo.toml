@@ -10,18 +10,13 @@ repository.workspace = true
 [features]
 # PostgreSQL support for `DatabasePool` (SQLite is always available).
 postgres = ["oxide-orm/postgres"]
+# TLS for PostgreSQL connections (rustls with the system's root certificates).
+postgres-tls = ["oxide-orm/postgres-tls"]
 
 [dependencies]
 oxide-http.workspace = true
 oxide-orm.workspace = true
 axum.workspace = true
-
-[dev-dependencies]
-tokio.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-validator.workspace = true
-sqlx.workspace = true
 
 [lints]
 workspace = true

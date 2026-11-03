@@ -584,25 +584,28 @@ fn new_struct_def(
 
 /// The path generated code uses for `oxide_orm`.
 ///
-/// Apps that depend on the `oxide` umbrella crate get `::oxide::orm`, so they need no direct
-/// `oxide-orm` dependency; everything else gets `::oxide_orm` (or its renamed form).
+/// A crate that depends on `oxide-orm` directly gets `::oxide_orm` (or its renamed form). Apps that
+/// depend only on the `oxide` umbrella crate get `::oxide::orm`.
 fn krate() -> TokenStream2 {
     use proc_macro_crate::{FoundCrate, crate_name};
 
     let root = |name: &str| Ident::new(name, Span::call_site());
-    match crate_name("oxide") {
-        Ok(FoundCrate::Itself) => quote!(::oxide::orm),
+    // A direct dependency wins: it is always usable unless it is optional and disabled, whereas
+    // `oxide` may be present only as a disabled optional dependency of an `oxide-orm` user.
+    match crate_name("oxide-orm") {
         Ok(FoundCrate::Name(name)) => {
             let name = root(&name);
-            quote!(::#name::orm)
+            quote!(::#name)
         }
-        Err(_) => match crate_name("oxide-orm") {
+        // `oxide-orm` itself declares `extern crate self as oxide_orm`.
+        Ok(FoundCrate::Itself) => quote!(::oxide_orm),
+        Err(_) => match crate_name("oxide") {
+            Ok(FoundCrate::Itself) => quote!(::oxide::orm),
             Ok(FoundCrate::Name(name)) => {
                 let name = root(&name);
-                quote!(::#name)
+                quote!(::#name::orm)
             }
-            // `oxide-orm` itself declares `extern crate self as oxide_orm`.
-            Ok(FoundCrate::Itself) | Err(_) => quote!(::oxide_orm),
+            Err(_) => quote!(::oxide_orm),
         },
     }
 }

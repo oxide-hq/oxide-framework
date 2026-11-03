@@ -1181,6 +1181,10 @@ kbd {
     [dependencies]
     oxide = { git = "https://github.com/oxide-hq/oxide-framework", features = ["postgres"] }
   </script>
+  <p>Hosted databases usually require TLS (<code>sslmode=require</code> or <code>verify-full</code> in the URL). Enable <code>postgres-tls</code> instead, which adds rustls with your system's root certificates. Without it, Oxide connects in plaintext only, so keep plain <code>postgres</code> for local servers.</p>
+  <script type="text/plain" data-lang="ini" data-label="Cargo.toml">
+    oxide = { git = "https://github.com/oxide-hq/oxide-framework", features = ["postgres-tls"] }
+  </script>
   <p>Your models and queries don't change. The query builder writes <code>$1, $2, …</code> placeholders for PostgreSQL and <code>?</code> for SQLite, and every value is still bound, never formatted into the SQL.</p>
   <div class="callout warning">
     <p>Rust's <code>i64</code> is a PostgreSQL <code>BIGINT</code>. Declare integer columns as <code>BIGINT</code> or <code>BIGSERIAL</code>; an <code>INTEGER</code> column fails to decode into an <code>i64</code> field at runtime. Also note that <code>LIKE</code>, behind <code>where_title_contains</code> and friends, is case-sensitive on PostgreSQL but not on SQLite.</p>

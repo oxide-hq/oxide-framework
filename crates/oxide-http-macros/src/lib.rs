@@ -266,32 +266,35 @@ fn expand_form_request(input: &DeriveInput) -> syn::Result<TokenStream2> {
     })
 }
 
-/// Parses `#[form_request(authorize)]` (alias: `custom_authorize`).
 /// The path generated code uses for `oxide_http`.
 ///
-/// Apps that depend on the `oxide` umbrella crate get `::oxide::http`, so they need no direct
-/// `oxide-http` dependency; everything else gets `::oxide_http` (or its renamed form).
+/// A crate that depends on `oxide-http` directly gets `::oxide_http` (or its renamed form). Apps that
+/// depend only on the `oxide` umbrella crate get `::oxide::http`.
 pub(crate) fn krate() -> TokenStream2 {
     use proc_macro_crate::{FoundCrate, crate_name};
 
     let root = |name: &str| Ident::new(name, Span::call_site());
-    match crate_name("oxide") {
-        Ok(FoundCrate::Itself) => quote!(::oxide::http),
+    // A direct dependency wins: it is always usable unless it is optional and disabled, whereas
+    // `oxide` may be present only as a disabled optional dependency of an `oxide-http` user.
+    match crate_name("oxide-http") {
         Ok(FoundCrate::Name(name)) => {
             let name = root(&name);
-            quote!(::#name::http)
+            quote!(::#name)
         }
-        Err(_) => match crate_name("oxide-http") {
+        // `oxide-http` itself declares `extern crate self as oxide_http`.
+        Ok(FoundCrate::Itself) => quote!(::oxide_http),
+        Err(_) => match crate_name("oxide") {
+            Ok(FoundCrate::Itself) => quote!(::oxide::http),
             Ok(FoundCrate::Name(name)) => {
                 let name = root(&name);
-                quote!(::#name)
+                quote!(::#name::http)
             }
-            // `oxide-http` itself declares `extern crate self as oxide_http`.
-            Ok(FoundCrate::Itself) | Err(_) => quote!(::oxide_http),
+            Err(_) => quote!(::oxide_http),
         },
     }
 }
 
+/// Parses `#[form_request(authorize)]` (alias: `custom_authorize`).
 fn parse_form_request_attrs(input: &DeriveInput) -> syn::Result<bool> {
     let mut custom_authorize = false;
     for attr in input
