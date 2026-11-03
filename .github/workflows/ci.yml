@@ -46,11 +46,26 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
   test:
     name: Test
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: oxide
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # The PostgreSQL suite fails rather than skips under CI when this is missing.
+      OXIDE_TEST_POSTGRES_URL: postgres://postgres:oxide@localhost:5432/postgres
     steps:
       - uses: actions/checkout@v7
         with:
@@ -58,8 +73,8 @@ jobs:
       - uses: rui314/setup-mold@v1
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test --workspace --locked
-      - run: cargo doc --workspace --no-deps --locked
+      - run: cargo test --workspace --all-features --locked
+      - run: cargo doc --workspace --all-features --no-deps --locked
 
   msrv:
     name: MSRV (1.88)
@@ -75,7 +90,7 @@ jobs:
           toolchain: "1.88"
       - uses: Swatinem/rust-cache@v2
       # `+1.88` overrides the stable channel pinned in rust-toolchain.toml.
-      - run: cargo +1.88 check --workspace --all-targets --locked
+      - run: cargo +1.88 check --workspace --all-targets --all-features --locked
 
   deny:
     name: cargo-deny

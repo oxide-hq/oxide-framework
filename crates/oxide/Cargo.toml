@@ -1,0 +1,22 @@
+[package]
+name = "oxide"
+description = "The Oxide framework: Laravel ergonomics for Rust. One dependency for oxide-http and oxide-orm."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+# PostgreSQL support for `DatabasePool` (SQLite is always available).
+postgres = ["oxide-orm/postgres"]
+# TLS for PostgreSQL connections (rustls with the system's root certificates).
+postgres-tls = ["oxide-orm/postgres-tls"]
+
+[dependencies]
+oxide-http.workspace = true
+oxide-orm.workspace = true
+axum.workspace = true
+
+[lints]
+workspace = true

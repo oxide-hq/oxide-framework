@@ -1,11 +1,12 @@
 //! Derive macros for `oxide-http`.
 //!
 //! These macros are re-exported by `oxide-http`; depend on that crate rather than on this one.
-//! All generated code refers to `::oxide_http::__private::*` so that user crates do not need
-//! direct `axum`/`tokio` dependencies.
+//! All generated code refers to `::oxide_http::__private::*` (or `::oxide::http::__private::*` in
+//! apps that depend on the `oxide` umbrella crate) so that user crates do not need direct
+//! `axum`/`tokio` dependencies.
 
 use proc_macro::TokenStream;
-use proc_macro2::TokenStream as TokenStream2;
+use proc_macro2::{Ident, Span, TokenStream as TokenStream2};
 use quote::{format_ident, quote};
 use syn::{Data, DeriveInput, Fields, parse_macro_input, parse_quote};
 
@@ -90,6 +91,7 @@ pub fn routes(input: TokenStream) -> TokenStream {
 }
 
 fn expand_service(input: &DeriveInput) -> TokenStream2 {
+    let krate = krate();
     let ident = &input.ident;
     let (_, ty_generics, _) = input.generics.split_for_impl();
 
@@ -97,7 +99,7 @@ fn expand_service(input: &DeriveInput) -> TokenStream2 {
     generics.params.push(parse_quote!(__OxideState));
     let where_clause = generics.make_where_clause();
     where_clause.predicates.push(parse_quote!(
-        #ident #ty_generics: ::oxide_http::__private::axum::extract::FromRef<__OxideState>
+        #ident #ty_generics: #krate::__private::axum::extract::FromRef<__OxideState>
     ));
     where_clause
         .predicates
@@ -109,19 +111,19 @@ fn expand_service(input: &DeriveInput) -> TokenStream2 {
 
     quote! {
         #[automatically_derived]
-        impl #impl_generics ::oxide_http::__private::axum::extract::FromRequestParts<__OxideState>
+        impl #impl_generics #krate::__private::axum::extract::FromRequestParts<__OxideState>
             for #ident #ty_generics #where_clause
         {
             type Rejection = ::core::convert::Infallible;
 
             fn from_request_parts(
-                _parts: &mut ::oxide_http::__private::axum::http::request::Parts,
+                _parts: &mut #krate::__private::axum::http::request::Parts,
                 state: &__OxideState,
             ) -> impl ::core::future::Future<Output = ::core::result::Result<Self, Self::Rejection>>
                    + ::core::marker::Send {
                 // Resolution is synchronous; avoid an `async` state machine.
                 ::core::future::ready(::core::result::Result::Ok(
-                    <Self as ::oxide_http::__private::axum::extract::FromRef<__OxideState>>::from_ref(state),
+                    <Self as #krate::__private::axum::extract::FromRef<__OxideState>>::from_ref(state),
                 ))
             }
         }
@@ -129,6 +131,7 @@ fn expand_service(input: &DeriveInput) -> TokenStream2 {
 }
 
 fn expand_service_container(input: &DeriveInput) -> syn::Result<TokenStream2> {
+    let krate = krate();
     let ident = &input.ident;
 
     if !input.generics.params.is_empty() {
@@ -178,7 +181,7 @@ fn expand_service_container(input: &DeriveInput) -> syn::Result<TokenStream2> {
         let ty = &field.ty;
         Some(quote! {
             #[automatically_derived]
-            impl ::oxide_http::__private::axum::extract::FromRef<#ident> for #ty {
+            impl #krate::__private::axum::extract::FromRef<#ident> for #ty {
                 fn from_ref(container: &#ident) -> Self {
                     ::core::clone::Clone::clone(&container.#name)
                 }
@@ -192,16 +195,16 @@ fn expand_service_container(input: &DeriveInput) -> syn::Result<TokenStream2> {
         #(#from_ref_impls)*
 
         const _: () = {
-            ::oxide_http::__private::tokio::task_local! {
+            #krate::__private::tokio::task_local! {
                 static #local: #ident;
             }
 
             #[automatically_derived]
-            impl ::oxide_http::container::ServiceContainer for #ident {
+            impl #krate::container::ServiceContainer for #ident {
                 fn scope<F>(
                     self,
                     future: F,
-                ) -> ::oxide_http::__private::tokio::task::futures::TaskLocalFuture<Self, F>
+                ) -> #krate::__private::tokio::task::futures::TaskLocalFuture<Self, F>
                 where
                     F: ::core::future::Future,
                 {
@@ -217,6 +220,7 @@ fn expand_service_container(input: &DeriveInput) -> syn::Result<TokenStream2> {
 }
 
 fn expand_form_request(input: &DeriveInput) -> syn::Result<TokenStream2> {
+    let krate = krate();
     let ident = &input.ident;
     let custom_authorize = parse_form_request_attrs(input)?;
     let (_, ty_generics, _) = input.generics.split_for_impl();
@@ -229,7 +233,7 @@ fn expand_form_request(input: &DeriveInput) -> syn::Result<TokenStream2> {
         .push(parse_quote!(__OxideState: ::core::marker::Send + ::core::marker::Sync));
     if custom_authorize {
         where_clause.predicates.push(parse_quote!(
-            #ident #ty_generics: ::oxide_http::request::Authorize<__OxideState>
+            #ident #ty_generics: #krate::request::Authorize<__OxideState>
         ));
     }
     let (impl_generics, _, where_clause) = generics.split_for_impl();
@@ -238,28 +242,56 @@ fn expand_form_request(input: &DeriveInput) -> syn::Result<TokenStream2> {
         quote! {
             fn authorize(
                 &self,
-                parts: &::oxide_http::__private::axum::http::request::Parts,
+                parts: &#krate::__private::axum::http::request::Parts,
                 state: &__OxideState,
             ) -> impl ::core::future::Future<Output = bool> + ::core::marker::Send {
-                <Self as ::oxide_http::request::Authorize<__OxideState>>::authorize(self, parts, state)
+                <Self as #krate::request::Authorize<__OxideState>>::authorize(self, parts, state)
             }
         }
     });
 
     Ok(quote! {
         #[automatically_derived]
-        impl #impl_generics ::oxide_http::request::FormRequest<__OxideState>
+        impl #impl_generics #krate::request::FormRequest<__OxideState>
             for #ident #ty_generics #where_clause
         {
             #authorize
 
             fn validate_fields(
                 &self,
-            ) -> ::core::result::Result<(), ::oxide_http::__private::validator::ValidationErrors> {
-                <Self as ::oxide_http::__private::validator::Validate>::validate(self)
+            ) -> ::core::result::Result<(), #krate::__private::validator::ValidationErrors> {
+                <Self as #krate::__private::validator::Validate>::validate(self)
             }
         }
     })
+}
+
+/// The path generated code uses for `oxide_http`.
+///
+/// A crate that depends on `oxide-http` directly gets `::oxide_http` (or its renamed form). Apps that
+/// depend only on the `oxide` umbrella crate get `::oxide::http`.
+pub(crate) fn krate() -> TokenStream2 {
+    use proc_macro_crate::{FoundCrate, crate_name};
+
+    let root = |name: &str| Ident::new(name, Span::call_site());
+    // A direct dependency wins: it is always usable unless it is optional and disabled, whereas
+    // `oxide` may be present only as a disabled optional dependency of an `oxide-http` user.
+    match crate_name("oxide-http") {
+        Ok(FoundCrate::Name(name)) => {
+            let name = root(&name);
+            quote!(::#name)
+        }
+        // `oxide-http` itself declares `extern crate self as oxide_http`.
+        Ok(FoundCrate::Itself) => quote!(::oxide_http),
+        Err(_) => match crate_name("oxide") {
+            Ok(FoundCrate::Itself) => quote!(::oxide::http),
+            Ok(FoundCrate::Name(name)) => {
+                let name = root(&name);
+                quote!(::#name::http)
+            }
+            Err(_) => quote!(::oxide_http),
+        },
+    }
 }
 
 /// Parses `#[form_request(authorize)]` (alias: `custom_authorize`).

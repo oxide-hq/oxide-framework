@@ -519,13 +519,14 @@ kbd {
   </ul>
 
   <h2>The crates</h2>
-  <p>Oxide is split so that you only compile what you use. Most applications depend on the two library crates; the macro crates are re-exported for you.</p>
+  <p>Oxide is split into layers so each stays small and focused, but your application only ever depends on one of them: the <code>oxide</code> umbrella crate, which re-exports the rest.</p>
   <table>
     <thead><tr><th>Crate</th><th>What it gives you</th></tr></thead>
     <tbody>
+      <tr><td><code>oxide</code></td><td>The crate your app depends on. Re-exports <code>oxide::http</code> and <code>oxide::orm</code> and gathers everything into <code>oxide::prelude</code>.</td></tr>
       <tr><td><code>oxide-http</code></td><td>Routing, the service container, <code>FormRequest</code>, route-model binding, the error contract and <code>TestClient</code>.</td></tr>
       <tr><td><code>oxide-http-macros</code></td><td>The <code>Service</code>, <code>ServiceContainer</code> and <code>FormRequest</code> derives and the <code>routes!</code> macro.</td></tr>
-      <tr><td><code>oxide-orm</code></td><td><code>DatabasePool</code>, the <code>Model</code> trait, the query builder and <code>OrmError</code>, on sqlx and SQLite.</td></tr>
+      <tr><td><code>oxide-orm</code></td><td><code>DatabasePool</code>, the <code>Model</code> trait, the query builder, migrations and <code>OrmError</code>, on sqlx with SQLite or PostgreSQL.</td></tr>
       <tr><td><code>oxide-orm-macros</code></td><td><code>#[derive(Model)]</code>.</td></tr>
     </tbody>
   </table>
@@ -540,21 +541,20 @@ kbd {
   <p>Oxide targets current stable Rust and promises to keep building on older compilers back to its minimum supported version. That gives you modern language features without forcing an upgrade the moment a new toolchain ships.</p>
   <ul>
     <li>Rust <strong>1.88</strong> or newer (edition 2024).</li>
-    <li>SQLite, if you use <code>oxide-orm</code>. sqlx bundles it, so there is nothing to install.</li>
+    <li>A database: SQLite is bundled with sqlx, so there is nothing to install. PostgreSQL works too, through the <code>postgres</code> feature.</li>
   </ul>
 
   <h2>Adding Oxide to your project</h2>
   <p>Oxide is not on crates.io yet, so you depend on it straight from GitHub. You also add the crates whose derives appear in your own code, such as <code>serde</code>, <code>validator</code> and <code>sqlx</code>.</p>
   <script type="text/plain" data-lang="ini" data-label="Cargo.toml">
     [dependencies]
-    oxide-http = { git = "https://github.com/oxide-hq/oxide-framework" }
-    oxide-orm = { git = "https://github.com/oxide-hq/oxide-framework" }
+    oxide = { git = "https://github.com/oxide-hq/oxide-framework" } # features = ["postgres"]
 
     axum = "0.8"
     tokio = { version = "1", features = ["full"] }
     serde = { version = "1", features = ["derive"] }
     validator = { version = "0.21", features = ["derive"] }
-    sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "macros", "chrono"] }
+    sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "macros", "migrate", "chrono"] }
   </script>
   <div class="callout note">
     <p>Oxide uses sqlx <strong>0.8</strong> rather than 0.9, because 0.9 needs Rust 1.94, which is above Oxide's minimum supported version. Pin the same major in your project so you don't compile two copies of sqlx.</p>
@@ -563,8 +563,7 @@ kbd {
   <h2>Your first application</h2>
   <p>An Oxide application is an Axum application with better ergonomics. You describe your state, declare your routes, then hand the result to <code>axum::serve</code>.</p>
   <script type="text/plain" data-lang="rust" data-label="src/main.rs">
-    use oxide_http::prelude::*;
-    use oxide_orm::prelude::*;
+    use oxide::prelude::*;
 
     #[derive(Clone, Debug, ServiceContainer)]
     struct AppContext {
@@ -1155,41 +1154,89 @@ kbd {
 <section class="page" id="database" data-title="Getting Started" data-group="Database">
   <p class="eyebrow">Database</p>
   <h1>Database: Getting Started</h1>
-  <p class="lead">Almost every application stores data, and connecting to a database should be the least interesting part of your day. <code>DatabasePool</code> wraps a sqlx SQLite pool and is a service like any other, so handlers can ask for it directly.</p>
+  <p class="lead">Almost every application stores data, and connecting to a database should be the least interesting part of your day. <code>DatabasePool</code> wraps a sqlx pool for SQLite or PostgreSQL and is a service like any other, so handlers can ask for it directly.</p>
 
   <h2>Connecting</h2>
   <p>You create the pool once at startup and put it in your container. Every handler that takes <code>db: DatabasePool</code> receives a cheap clone of it.</p>
   <script type="text/plain" data-lang="rust">
-    let db = DatabasePool::connect("sqlite://podcasts.db?mode=rwc").await?;
+    let db = DatabasePool::connect(&std::env::var("DATABASE_URL")?).await?;
 
     #[derive(Clone, Debug, ServiceContainer)]
     struct AppContext {
         db: DatabasePool,
     }
   </script>
+  <p>The URL's scheme picks the driver, so switching databases is a configuration change, not a code change.</p>
+  <table>
+    <thead><tr><th>Driver</th><th>Example <code>DATABASE_URL</code></th></tr></thead>
+    <tbody>
+      <tr><td>SQLite</td><td><code>sqlite://database/database.sqlite?mode=rwc</code></td></tr>
+      <tr><td>PostgreSQL</td><td><code>postgres://oxide:secret@localhost:5432/podcasts</code></td></tr>
+    </tbody>
+  </table>
 
-  <h2>In-memory databases</h2>
-  <p>Tests are fastest and most reliable when each one starts from a clean database. <code>connect_in_memory</code> gives you a private SQLite database with foreign keys enabled, and <code>execute_schema</code> creates your tables.</p>
+  <h3>PostgreSQL</h3>
+  <p>SQLite is built in, so a fresh project needs nothing else. PostgreSQL support is a cargo feature: you only compile its driver when you use it.</p>
+  <script type="text/plain" data-lang="ini" data-label="Cargo.toml">
+    [dependencies]
+    oxide = { git = "https://github.com/oxide-hq/oxide-framework", features = ["postgres"] }
+  </script>
+  <p>Hosted databases usually require TLS (<code>sslmode=require</code> or <code>verify-full</code> in the URL). Enable <code>postgres-tls</code> instead, which adds rustls with your system's root certificates. Without it, Oxide connects in plaintext only, so keep plain <code>postgres</code> for local servers.</p>
+  <script type="text/plain" data-lang="ini" data-label="Cargo.toml">
+    oxide = { git = "https://github.com/oxide-hq/oxide-framework", features = ["postgres-tls"] }
+  </script>
+  <p>Your models and queries don't change. The query builder writes <code>$1, $2, …</code> placeholders for PostgreSQL and <code>?</code> for SQLite, and every value is still bound, never formatted into the SQL.</p>
+  <div class="callout warning">
+    <p>Rust's <code>i64</code> is a PostgreSQL <code>BIGINT</code>. Declare integer columns as <code>BIGINT</code> or <code>BIGSERIAL</code>; an <code>INTEGER</code> column fails to decode into an <code>i64</code> field at runtime. Also note that <code>LIKE</code>, behind <code>where_title_contains</code> and friends, is case-sensitive on PostgreSQL but not on SQLite.</p>
+  </div>
+
+  <h2>Migrations</h2>
+  <p>Your schema should live in version control and be applied the same way on every machine. Oxide uses sqlx's migrator: numbered SQL files in <code>database/migrations</code>, embedded into your binary at compile time and recorded in a <code>_sqlx_migrations</code> table so each runs exactly once.</p>
+  <script type="text/plain" data-lang="bash">
+    database/migrations/
+    ├── 0001_create_podcasts_table.sql
+    └── 0002_create_episodes_table.sql
+  </script>
+  <script type="text/plain" data-lang="rust">
+    db.migrate(&sqlx::migrate!("./database/migrations")).await?;
+  </script>
+  <div class="compare">
+    <script type="text/plain" data-lang="php">
+      php artisan migrate
+    </script>
+    <script type="text/plain" data-lang="rust">
+      db.migrate(&sqlx::migrate!("./database/migrations")).await?;
+    </script>
+  </div>
+  <div class="callout tip">
+    <p>Running <code>migrate</code> at startup is safe: applied migrations are skipped. Add a <code>build.rs</code> with <code>println!("cargo:rerun-if-changed=database/migrations");</code> so new files trigger a rebuild.</p>
+  </div>
+
+  <h2>Fresh databases for tests</h2>
+  <p>Tests are fastest and most reliable when each one starts from a clean database. <code>connect_fresh</code> is Oxide's take on Laravel's <code>RefreshDatabase</code>: give it your usual URL and it hands back an empty database that belongs to that one test.</p>
+  <script type="text/plain" data-lang="rust">
+    let db = DatabasePool::connect_fresh("sqlite::memory:").await?;
+    db.migrate(&sqlx::migrate!("./database/migrations")).await?;
+  </script>
+  <p>For SQLite you get a private in-memory database with foreign keys enabled. For a <code>postgres://</code> URL, Oxide creates a uniquely named <code>oxide_test_*</code> schema and pins the pool to it, so your tests can run in parallel against one server.</p>
+  <div class="callout note">
+    <p>Point PostgreSQL tests at a throwaway database. The test schemas are left behind so you can inspect them after a failure.</p>
+  </div>
+  <p>When you just need a table or two, <code>connect_in_memory</code> and <code>execute_schema</code> still work.</p>
   <script type="text/plain" data-lang="rust">
     let db = DatabasePool::connect_in_memory().await?;
-    db.execute_schema(r#"
-        CREATE TABLE posts (
-            id        INTEGER PRIMARY KEY AUTOINCREMENT,
-            author_id INTEGER NOT NULL,
-            title     TEXT    NOT NULL,
-            body      TEXT    NOT NULL,
-            published BOOLEAN NOT NULL DEFAULT 0
-        );
-    "#).await?;
+    db.execute_schema("CREATE TABLE podcasts (id INTEGER PRIMARY KEY, title TEXT NOT NULL)").await?;
   </script>
 
   <h2>Raw sqlx access</h2>
-  <p>An ORM should never trap you. <code>db.pool()</code> returns the underlying <code>SqlitePool</code> for anything the query builder doesn't cover yet.</p>
+  <p>An ORM should never trap you. <code>as_sqlite()</code> and <code>as_postgres()</code> return the underlying sqlx pool for anything the query builder doesn't cover yet, and <code>driver()</code> tells you which one you have.</p>
   <script type="text/plain" data-lang="rust">
-    let rows: Vec<(String, i64)> = sqlx::query_as("SELECT title, plays FROM episodes WHERE plays > ?")
-        .bind(1_000)
-        .fetch_all(db.pool())
-        .await?;
+    if let Some(pool) = db.as_postgres() {
+        let rows: Vec<(String, i64)> = sqlx::query_as("SELECT title, plays FROM episodes WHERE plays > $1")
+            .bind(1_000_i64)
+            .fetch_all(pool)
+            .await?;
+    }
   </script>
   <div class="callout warning">
     <p>Always pass values with <code>.bind(..)</code>. Never <code>format!</code> user input into SQL, even when it looks harmless.</p>
@@ -1412,7 +1459,7 @@ kbd {
       let post = comment.belongs_to::<Post>("post_id").first_or_fail(&db).await?;
     </script>
   </div>
-  <p>These are methods of the <code>Model</code> trait, which <code>oxide_orm::prelude::*</code> brings into scope. <code>has_one</code> returns the same builder as <code>has_many</code>; finish it with <code>first</code>.</p>
+  <p>These are methods of the <code>Model</code> trait, which <code>oxide::prelude::*</code> brings into scope. <code>has_one</code> returns the same builder as <code>has_many</code>; finish it with <code>first</code>.</p>
 </section>
 
 <!-- ================================================================ TESTING -->

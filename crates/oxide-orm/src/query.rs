@@ -1,20 +1,24 @@
 //! A parameterized SQL query builder.
 //!
 //! Column names are `&'static str` (they come from `#[derive(Model)]` at compile time) and every
-//! value is bound as a `?` parameter, so user input never reaches the SQL text.
+//! value is bound as a parameter (`?` on SQLite, `$n` on PostgreSQL), so user input never reaches
+//! the SQL text.
 
 use std::fmt::{self, Write as _};
 use std::marker::PhantomData;
 
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
+use sqlx::Arguments as _;
+#[cfg(feature = "postgres")]
+use sqlx::postgres::PgArguments;
 use sqlx::sqlite::SqliteArguments;
-use sqlx::{Arguments as _, Sqlite};
 
-use crate::database::DatabasePool;
+use crate::database::{DatabasePool, Driver};
 use crate::error::OrmError;
+use crate::exec;
 use crate::model::Model;
 
-/// A value bound to a `?` placeholder.
+/// A value bound to a query parameter.
 #[derive(Debug, Clone, PartialEq)]
 pub enum SqlValue {
     Null,
@@ -69,7 +73,23 @@ impl<T: Into<SqlValue>> From<Option<T>> for SqlValue {
 }
 
 impl SqlValue {
-    fn bind(self, args: &mut SqliteArguments<'_>) -> Result<(), sqlx::Error> {
+    fn bind_sqlite(self, args: &mut SqliteArguments<'_>) -> Result<(), sqlx::Error> {
+        let result = match self {
+            Self::Null => args.add(None::<i64>),
+            Self::Integer(v) => args.add(v),
+            Self::Real(v) => args.add(v),
+            Self::Bool(v) => args.add(v),
+            Self::Text(v) => args.add(v),
+            Self::Blob(v) => args.add(v),
+            Self::DateTimeUtc(v) => args.add(v),
+            Self::DateTime(v) => args.add(v),
+            Self::Date(v) => args.add(v),
+        };
+        result.map_err(sqlx::Error::Encode)
+    }
+
+    #[cfg(feature = "postgres")]
+    fn bind_postgres(self, args: &mut PgArguments) -> Result<(), sqlx::Error> {
         let result = match self {
             Self::Null => args.add(None::<i64>),
             Self::Integer(v) => args.add(v),
@@ -85,13 +105,73 @@ impl SqlValue {
     }
 }
 
-/// Collects values into sqlx arguments.
-pub(crate) fn arguments(values: Vec<SqlValue>) -> Result<SqliteArguments<'static>, OrmError> {
+/// Collects values into SQLite arguments.
+pub(crate) fn sqlite_arguments(
+    values: Vec<SqlValue>,
+) -> Result<SqliteArguments<'static>, OrmError> {
     let mut args = SqliteArguments::default();
     for value in values {
-        value.bind(&mut args)?;
+        value.bind_sqlite(&mut args)?;
     }
     Ok(args)
+}
+
+/// Collects values into PostgreSQL arguments.
+#[cfg(feature = "postgres")]
+pub(crate) fn postgres_arguments(values: Vec<SqlValue>) -> Result<PgArguments, OrmError> {
+    let mut args = PgArguments::default();
+    for value in values {
+        value.bind_postgres(&mut args)?;
+    }
+    Ok(args)
+}
+
+/// Builds SQL text and its bound values for one [`Driver`]'s placeholder syntax.
+pub(crate) struct SqlWriter {
+    sql: String,
+    values: Vec<SqlValue>,
+    driver: Driver,
+}
+
+impl SqlWriter {
+    pub(crate) fn new(driver: Driver, sql: impl Into<String>) -> Self {
+        Self {
+            sql: sql.into(),
+            values: Vec::new(),
+            driver,
+        }
+    }
+
+    pub(crate) fn push(&mut self, sql: &str) {
+        self.sql.push_str(sql);
+    }
+
+    pub(crate) fn push_ident(&mut self, name: &str) {
+        self.sql.push_str(&ident(name));
+    }
+
+    /// Writes a placeholder (`?` or `$n`) bound to `value`.
+    ///
+    /// `NULL` is written as a literal instead: PostgreSQL types every parameter, and a `NULL`
+    /// bound as one type is rejected by columns of another. The literal is a constant, so no
+    /// input reaches the SQL text.
+    pub(crate) fn bind(&mut self, value: SqlValue) {
+        if value == SqlValue::Null {
+            self.sql.push_str("NULL");
+            return;
+        }
+        self.values.push(value);
+        match self.driver {
+            Driver::Sqlite => self.sql.push('?'),
+            Driver::Postgres => {
+                let _ = write!(self.sql, "${}", self.values.len());
+            }
+        }
+    }
+
+    pub(crate) fn finish(self) -> (String, Vec<SqlValue>) {
+        (self.sql, self.values)
+    }
 }
 
 /// A comparison operator.
@@ -267,33 +347,26 @@ impl<M: Model> Query<M> {
         self
     }
 
-    /// The `SELECT` statement and its bound values, for debugging or custom execution.
+    /// The `SELECT` statement and its bound values, in SQLite syntax (`?` placeholders).
     pub fn to_sql(&self) -> (String, Vec<SqlValue>) {
-        let mut sql = format!("SELECT * FROM {}", ident(M::TABLE));
-        let mut values = Vec::new();
-        self.push_where(&mut sql, &mut values);
-        self.push_order_limit(&mut sql, &mut values);
-        (sql, values)
+        self.to_sql_for(Driver::Sqlite)
+    }
+
+    /// The `SELECT` statement and its bound values for `driver`'s SQL dialect.
+    pub fn to_sql_for(&self, driver: Driver) -> (String, Vec<SqlValue>) {
+        self.select(driver, "*").finish()
     }
 
     /// Runs the query.
     pub async fn get(self, db: &DatabasePool) -> Result<Vec<M>, OrmError> {
-        let (sql, values) = self.to_sql();
-        Ok(
-            sqlx::query_as_with::<Sqlite, M, _>(&sql, arguments(values)?)
-                .fetch_all(db.pool())
-                .await?,
-        )
+        let (sql, values) = self.to_sql_for(db.driver());
+        exec::fetch_all(db, &sql, values).await
     }
 
     /// The first matching row.
     pub async fn first(self, db: &DatabasePool) -> Result<Option<M>, OrmError> {
-        let (sql, values) = self.limit(1).to_sql();
-        Ok(
-            sqlx::query_as_with::<Sqlite, M, _>(&sql, arguments(values)?)
-                .fetch_optional(db.pool())
-                .await?,
-        )
+        let (sql, values) = self.limit(1).to_sql_for(db.driver());
+        exec::fetch_optional(db, &sql, values).await
     }
 
     /// The first matching row, or [`OrmError::NotFound`] (a `404` over HTTP).
@@ -305,94 +378,120 @@ impl<M: Model> Query<M> {
 
     /// Counts matching rows (respecting `limit`/`offset` when set).
     pub async fn count(self, db: &DatabasePool) -> Result<i64, OrmError> {
-        let mut values = Vec::new();
-        let sql = if self.limit.is_some() || self.offset.is_some() {
-            let mut inner = format!("SELECT 1 FROM {}", ident(M::TABLE));
-            self.push_where(&mut inner, &mut values);
-            self.push_order_limit(&mut inner, &mut values);
-            format!("SELECT COUNT(*) FROM ({inner})")
-        } else {
-            let mut sql = format!("SELECT COUNT(*) FROM {}", ident(M::TABLE));
-            self.push_where(&mut sql, &mut values);
-            sql
-        };
-        Ok(
-            sqlx::query_scalar_with::<Sqlite, i64, _>(&sql, arguments(values)?)
-                .fetch_one(db.pool())
-                .await?,
-        )
+        let (sql, values) = self.count_sql(db.driver());
+        exec::fetch_count(db, &sql, values).await
     }
 
     /// Deletes matching rows and returns how many were removed.
     pub async fn delete(self, db: &DatabasePool) -> Result<u64, OrmError> {
-        let mut values = Vec::new();
-        let mut sql = format!("DELETE FROM {}", ident(M::TABLE));
-        if self.limit.is_some() || self.offset.is_some() || !self.order.is_empty() {
-            // SQLite's DELETE ... LIMIT is a compile-time option; select the keys instead.
-            let pk = ident(M::PRIMARY_KEY);
-            let mut inner = format!("SELECT {pk} FROM {}", ident(M::TABLE));
-            self.push_where(&mut inner, &mut values);
-            self.push_order_limit(&mut inner, &mut values);
-            let _ = write!(sql, " WHERE {pk} IN ({inner})");
-        } else {
-            self.push_where(&mut sql, &mut values);
-        }
-        Ok(sqlx::query_with::<Sqlite, _>(&sql, arguments(values)?)
-            .execute(db.pool())
-            .await?
-            .rows_affected())
+        let (sql, values) = self.delete_sql(db.driver());
+        exec::execute(db, &sql, values).await
     }
 
-    fn push_where(&self, sql: &mut String, values: &mut Vec<SqlValue>) {
+    fn select(&self, driver: Driver, columns: &str) -> SqlWriter {
+        let mut sql = SqlWriter::new(driver, format!("SELECT {columns} FROM "));
+        sql.push_ident(M::TABLE);
+        self.push_where(&mut sql);
+        self.push_order_limit(&mut sql);
+        sql
+    }
+
+    fn is_windowed(&self) -> bool {
+        self.limit.is_some() || self.offset.is_some()
+    }
+
+    pub(crate) fn count_sql(&self, driver: Driver) -> (String, Vec<SqlValue>) {
+        if self.is_windowed() {
+            // The window applies to rows, so count over a subquery (aliased for PostgreSQL).
+            let (inner, values) = self.select(driver, "1").finish();
+            return (format!("SELECT COUNT(*) FROM ({inner}) AS sub"), values);
+        }
+        let mut sql = SqlWriter::new(driver, "SELECT COUNT(*) FROM ");
+        sql.push_ident(M::TABLE);
+        self.push_where(&mut sql);
+        sql.finish()
+    }
+
+    pub(crate) fn delete_sql(&self, driver: Driver) -> (String, Vec<SqlValue>) {
+        let mut sql = SqlWriter::new(driver, "DELETE FROM ");
+        sql.push_ident(M::TABLE);
+        if self.is_windowed() || !self.order.is_empty() {
+            // Neither SQLite (by default) nor PostgreSQL has DELETE ... LIMIT; select the keys.
+            sql.push(" WHERE ");
+            sql.push_ident(M::PRIMARY_KEY);
+            sql.push(" IN (SELECT ");
+            sql.push_ident(M::PRIMARY_KEY);
+            sql.push(" FROM ");
+            sql.push_ident(M::TABLE);
+            self.push_where(&mut sql);
+            self.push_order_limit(&mut sql);
+            sql.push(")");
+        } else {
+            self.push_where(&mut sql);
+        }
+        sql.finish()
+    }
+
+    fn push_where(&self, sql: &mut SqlWriter) {
         for (index, condition) in self.conditions.iter().enumerate() {
-            sql.push_str(if index == 0 { " WHERE " } else { " AND " });
+            sql.push(if index == 0 { " WHERE " } else { " AND " });
             match condition {
                 Condition::Compare { column, op, value } => {
-                    let _ = write!(sql, "{} {} ?", ident(column), op.as_sql());
+                    sql.push_ident(column);
+                    sql.push(" ");
+                    sql.push(op.as_sql());
+                    sql.push(" ");
+                    sql.bind(value.clone());
                     if *op == Op::Like {
-                        sql.push_str(" ESCAPE '\\'");
+                        sql.push(" ESCAPE '\\'");
                     }
-                    values.push(value.clone());
                 }
                 // `x IN ()` is never true. The column is not echoed into a comment, where
                 // quoting would not protect it.
-                Condition::In { values: list, .. } if list.is_empty() => sql.push_str("0 = 1"),
-                Condition::In {
-                    column,
-                    values: list,
-                } => {
-                    let placeholders = vec!["?"; list.len()].join(", ");
-                    let _ = write!(sql, "{} IN ({placeholders})", ident(column));
-                    values.extend(list.iter().cloned());
+                Condition::In { values, .. } if values.is_empty() => sql.push("0 = 1"),
+                Condition::In { column, values } => {
+                    sql.push_ident(column);
+                    sql.push(" IN (");
+                    for (index, value) in values.iter().enumerate() {
+                        if index > 0 {
+                            sql.push(", ");
+                        }
+                        sql.bind(value.clone());
+                    }
+                    sql.push(")");
                 }
                 Condition::Null { column, negated } => {
-                    let not = if *negated { " NOT" } else { "" };
-                    let _ = write!(sql, "{} IS{not} NULL", ident(column));
+                    sql.push_ident(column);
+                    sql.push(if *negated { " IS NOT NULL" } else { " IS NULL" });
                 }
             }
         }
     }
 
-    fn push_order_limit(&self, sql: &mut String, values: &mut Vec<SqlValue>) {
+    fn push_order_limit(&self, sql: &mut SqlWriter) {
         for (index, (column, direction)) in self.order.iter().enumerate() {
-            sql.push_str(if index == 0 { " ORDER BY " } else { ", " });
-            let dir = match direction {
-                Direction::Asc => "ASC",
-                Direction::Desc => "DESC",
-            };
-            let _ = write!(sql, "{} {dir}", ident(column));
+            sql.push(if index == 0 { " ORDER BY " } else { ", " });
+            sql.push_ident(column);
+            sql.push(match direction {
+                Direction::Asc => " ASC",
+                Direction::Desc => " DESC",
+            });
         }
-        match (self.limit, self.offset) {
-            (None, None) => {}
-            (limit, offset) => {
-                // SQLite needs a LIMIT before OFFSET; -1 means "no limit".
-                sql.push_str(" LIMIT ?");
-                values.push(limit.map_or(SqlValue::Integer(-1), SqlValue::from));
-                if let Some(offset) = offset {
-                    sql.push_str(" OFFSET ?");
-                    values.push(SqlValue::from(offset));
-                }
+        match (self.limit, sql.driver) {
+            (Some(limit), _) => {
+                sql.push(" LIMIT ");
+                sql.bind(SqlValue::from(limit));
             }
+            // SQLite needs a LIMIT before OFFSET; -1 means "no limit".
+            (None, Driver::Sqlite) if self.offset.is_some() => {
+                sql.push(" LIMIT ");
+                sql.bind(SqlValue::Integer(-1));
+            }
+            (None, _) => {}
+        }
+        if let Some(offset) = self.offset {
+            sql.push(" OFFSET ");
+            sql.bind(SqlValue::from(offset));
         }
     }
 }
@@ -405,6 +504,91 @@ pub(crate) fn ident(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(Debug, Clone, sqlx::FromRow, crate::Model)]
+    #[allow(dead_code)]
+    struct Podcast {
+        id: i64,
+        title: String,
+        subscribers: Option<i64>,
+    }
+
+    fn sample() -> Query<Podcast> {
+        Query::new()
+            .filter("title", Op::Like, like_pattern("%", "rust", "%"))
+            .filter_in("id", [1_i64, 2, 3])
+            .filter("subscribers", Op::Gte, 100_i64)
+            .order_by("id", Direction::Desc)
+            .limit(10)
+            .offset(20)
+    }
+
+    #[test]
+    fn sqlite_uses_question_mark_placeholders() {
+        let (sql, values) = sample().to_sql();
+        assert_eq!(
+            sql,
+            r#"SELECT * FROM "podcasts" WHERE "title" LIKE ? ESCAPE '\' AND "id" IN (?, ?, ?) AND "subscribers" >= ? ORDER BY "id" DESC LIMIT ? OFFSET ?"#
+        );
+        assert_eq!(values.len(), 7);
+    }
+
+    #[test]
+    fn postgres_numbers_its_placeholders() {
+        let (sql, values) = sample().to_sql_for(Driver::Postgres);
+        assert_eq!(
+            sql,
+            r#"SELECT * FROM "podcasts" WHERE "title" LIKE $1 ESCAPE '\' AND "id" IN ($2, $3, $4) AND "subscribers" >= $5 ORDER BY "id" DESC LIMIT $6 OFFSET $7"#
+        );
+        assert_eq!(values[5], SqlValue::Integer(10));
+        assert_eq!(values[6], SqlValue::Integer(20));
+    }
+
+    #[test]
+    fn offset_without_limit_follows_the_dialect() {
+        let query = Query::<Podcast>::new().offset(5);
+        assert_eq!(
+            query.to_sql().0,
+            r#"SELECT * FROM "podcasts" LIMIT ? OFFSET ?"#
+        );
+        assert_eq!(
+            query.to_sql_for(Driver::Postgres).0,
+            r#"SELECT * FROM "podcasts" OFFSET $1"#
+        );
+    }
+
+    #[test]
+    fn null_values_are_literals() {
+        let (sql, values) = Query::<Podcast>::new()
+            .filter("subscribers", Op::Gt, None::<i64>)
+            .filter("id", Op::Eq, 1_i64)
+            .to_sql_for(Driver::Postgres);
+        assert_eq!(
+            sql,
+            r#"SELECT * FROM "podcasts" WHERE "subscribers" > NULL AND "id" = $1"#
+        );
+        assert_eq!(values, [SqlValue::Integer(1)]);
+    }
+
+    #[test]
+    fn windowed_counts_and_deletes_use_subqueries() {
+        let query = Query::<Podcast>::new()
+            .filter("id", Op::Gt, 1_i64)
+            .order_by("id", Direction::Asc)
+            .limit(2);
+        assert_eq!(
+            query.count_sql(Driver::Postgres).0,
+            r#"SELECT COUNT(*) FROM (SELECT 1 FROM "podcasts" WHERE "id" > $1 ORDER BY "id" ASC LIMIT $2) AS sub"#
+        );
+        assert_eq!(
+            query.delete_sql(Driver::Postgres).0,
+            r#"DELETE FROM "podcasts" WHERE "id" IN (SELECT "id" FROM "podcasts" WHERE "id" > $1 ORDER BY "id" ASC LIMIT $2)"#
+        );
+        assert_eq!(
+            Query::<Podcast>::new().count_sql(Driver::Sqlite).0,
+            r#"SELECT COUNT(*) FROM "podcasts""#
+        );
+    }
 
     #[test]
     fn like_patterns_escape_wildcards() {

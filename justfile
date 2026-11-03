@@ -5,15 +5,29 @@ default:
 
 # Type-check the whole workspace
 check:
-    cargo check --workspace --all-targets
+    cargo check --workspace --all-targets --all-features
 
-# Run the full test suite
+# Run the full test suite (the PostgreSQL suite skips unless OXIDE_TEST_POSTGRES_URL is set)
 test:
-    cargo test --workspace
+    cargo test --workspace --all-features
+
+# Run the tests against a throwaway PostgreSQL container (podman or docker)
+test-pg engine="podman":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{engine}} run --rm -d --name oxide-test-pg -p 55432:5432 -e POSTGRES_PASSWORD=oxide postgres:17 >/dev/null
+    trap '{{engine}} stop oxide-test-pg >/dev/null' EXIT
+    # Ask over TCP: the init server that runs first only listens on a Unix socket.
+    for _ in $(seq 60); do
+        {{engine}} exec oxide-test-pg pg_isready -q -h 127.0.0.1 && break
+        sleep 1
+    done
+    {{engine}} exec oxide-test-pg pg_isready -h 127.0.0.1 || { {{engine}} logs oxide-test-pg; exit 1; }
+    OXIDE_TEST_POSTGRES_URL=postgres://postgres:oxide@localhost:55432/postgres cargo test --workspace --all-features
 
 # Clippy with warnings treated as errors
 lint:
-    cargo clippy --workspace --all-targets -- -D warnings
+    cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 # Format all crates
 fmt:

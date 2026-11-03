@@ -31,6 +31,7 @@ comparisons throughout. Its source is [`docs/index.html`](docs/index.html), depl
 | Facades                 | `AppContext::resolve::<Mailer>()` inside `facade_middleware` (task-local)     |
 | `FormRequest`           | `#[derive(FormRequest)]` + the `Validated<T>` extractor                       |
 | Eloquent models         | `#[derive(Model)]` → `Post::query().where_published(true).get(&db)`           |
+| Databases & migrations  | SQLite or PostgreSQL (`postgres` feature); `db.migrate(&sqlx::migrate!(..))`  |
 | Route-model binding     | `Bind<Post>` — automatic for `Model`s, or `impl RouteBindable` by hand        |
 | Routes & resources      | `routes! { prefix(..) { resource("/posts", PostController); } }`              |
 | Named routes / `route()`| `route!("posts.show", post = 42)` → `/api/v1/posts/42`                        |
@@ -147,8 +148,9 @@ errors. Inside handlers, the `UrlGenerator` extractor generates URLs from the sa
 
 ### Models (`oxide-orm`)
 
-`#[derive(Model)]` turns an `sqlx::FromRow` struct into an Eloquent-style model backed by SQLite.
-Every query method is generated per field and binds its values as `?` parameters.
+`#[derive(Model)]` turns an `sqlx::FromRow` struct into an Eloquent-style model backed by SQLite
+or, with the `postgres` feature, PostgreSQL. Every query method is generated per field and binds
+its values as parameters (`?` on SQLite, `$n` on PostgreSQL).
 
 ```rust
 #[derive(Debug, Clone, Serialize, sqlx::FromRow, Model)]
@@ -180,9 +182,13 @@ The derive also generates `find`, `find_or_fail`, `all`, `create`, `where_<field
 `_not`, `_null`/`_not_null` on `Option` fields, `first`, `first_or_fail` and `delete` on queries,
 plus `has_many`/`belongs_to` helpers. It implements `RouteBindable` for any state that provides a
 `DatabasePool`, so `Bind<Post>` loads the row from `{post}` and answers 404 when it is missing.
-`OrmError::NotFound` converts to a 404 and database errors to an opaque 500. See
-[`crates/oxide-orm/tests/eloquent_http_test.rs`](crates/oxide-orm/tests/eloquent_http_test.rs)
-for a full CRUD API.
+`OrmError::NotFound` converts to a 404 and database errors to an opaque 500.
+
+`DatabasePool::connect(url)` picks the driver from the URL (`sqlite:` or `postgres://`),
+`db.migrate(&sqlx::migrate!("./database/migrations"))` applies numbered SQL migrations, and
+`DatabasePool::connect_fresh(url)` gives each test an isolated database (a new in-memory SQLite
+database, or a throwaway PostgreSQL schema). The suite in
+[`crates/oxide-orm/tests/suite`](crates/oxide-orm/tests/suite) runs a full CRUD API against both.
 
 ### Testing
 
@@ -209,17 +215,31 @@ The full lifecycle suite is in
 
 ### Dependencies in your crate
 
-The `Validate` derive comes from [`validator`](https://docs.rs/validator), and its generated code
-refers to `::validator`. Your crate therefore needs `validator` (with the `derive` feature) and
-`serde` as direct dependencies alongside `oxide-http`.
+Applications depend on the [`oxide`](crates/oxide) umbrella crate, which re-exports
+`oxide-http` (as `oxide::http`) and `oxide-orm` (as `oxide::orm`) and gathers everything into
+`oxide::prelude`. Oxide's derives detect it and generate `::oxide::...` paths, so you never need
+the individual crates:
+
+```toml
+[dependencies]
+oxide = { git = "https://github.com/oxide-hq/oxide-framework" } # features = ["postgres"]
+```
+
+Use `features = ["postgres-tls"]` for PostgreSQL servers that require TLS (`sslmode=require`); plain
+`postgres` connects without TLS.
+
+The `serde`, `Validate` and `sqlx::FromRow` derives come from those crates and refer to them by
+name, so your crate also needs `serde`, `validator` (with `derive`) and `sqlx` as direct
+dependencies.
 
 ## Workspace
 
 | Crate                                            | Purpose                                                          |
 | ------------------------------------------------ | ---------------------------------------------------------------- |
+| [`oxide`](crates/oxide)                          | The umbrella crate apps depend on: re-exports both layers and a combined prelude |
 | [`oxide-http`](crates/oxide-http)                | Extractors, error contract, service container traits, `TestClient` |
 | [`oxide-http-macros`](crates/oxide-http-macros)  | `Service`, `ServiceContainer` and `FormRequest` derives (re-exported by `oxide-http`) |
-| [`oxide-orm`](crates/oxide-orm)                  | `DatabasePool`, `Model` trait, typed queries, `OrmError` (sqlx + SQLite) |
+| [`oxide-orm`](crates/oxide-orm)                  | `DatabasePool`, `Model` trait, typed queries, migrations, `OrmError` (sqlx: SQLite, PostgreSQL) |
 | [`oxide-orm-macros`](crates/oxide-orm-macros)    | `#[derive(Model)]` (re-exported by `oxide-orm`) |
 
 ## Development

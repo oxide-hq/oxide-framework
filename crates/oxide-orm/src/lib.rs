@@ -1,13 +1,14 @@
 //! # oxide-orm
 //!
-//! An Eloquent-inspired ORM for Oxide, built on [sqlx](https://docs.rs/sqlx) (SQLite).
+//! An Eloquent-inspired ORM for Oxide, built on [sqlx](https://docs.rs/sqlx): SQLite, plus
+//! PostgreSQL with the `postgres` feature.
 //!
 //! `#[derive(Model)]` generates, at compile time:
 //!
 //! - static entry points — `Post::query()`, `find`, `find_or_fail`, `all`, `insert`/`create`;
 //! - a typed query builder with `where_<field>`, `where_<field>_in`, `order_by_<field>_desc`, ...
 //!   (plus `_contains`/`_starts_with`/`_ends_with` on strings and `_gt`/`_gte`/`_lt`/`_lte` on
-//!   numbers), always with bound `?` parameters;
+//!   numbers), always with bound parameters;
 //! - active-record mutations — `post.save(&db)`, `post.delete(&db)`;
 //! - a `RouteBindable` impl, so `Bind<Post>` resolves rows from any state holding a
 //!   [`DatabasePool`] — no manual binding code.
@@ -26,12 +27,13 @@ extern crate self as oxide_orm;
 
 pub mod database;
 pub mod error;
+mod exec;
 pub mod model;
 pub mod query;
 
-pub use database::DatabasePool;
+pub use database::{DatabasePool, Driver};
 pub use error::OrmError;
-pub use model::Model;
+pub use model::{FromDatabaseRow, Model};
 pub use oxide_orm_macros::Model;
 pub use query::{Direction, Op, Query, SqlValue};
 
@@ -44,7 +46,7 @@ pub mod __private {
 
 /// `use oxide_orm::prelude::*;`
 pub mod prelude {
-    pub use crate::database::DatabasePool;
+    pub use crate::database::{DatabasePool, Driver};
     pub use crate::error::OrmError;
     pub use crate::model::Model;
     pub use oxide_orm_macros::Model;

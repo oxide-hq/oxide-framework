@@ -249,8 +249,9 @@ impl Expander {
         self.collect(stmts, scope, &mut calls)?;
         // Mixed-site hygiene keeps a caller's own `router` binding visible in handler expressions.
         let router = Ident::new("router", Span::mixed_site());
+        let krate = crate::krate();
         Ok(quote! {{
-            let #router = ::oxide_http::routing::OxideRouter::new();
+            let #router = #krate::routing::OxideRouter::new();
             #( let #router = #router #calls; )*
             #router
         }})
@@ -388,13 +389,14 @@ fn route_call(
     span: Span,
 ) -> TokenStream {
     let method = Ident::new(&verb.to_string().to_uppercase(), verb.span());
+    let krate = crate::krate();
     let name = name.map_or_else(
         || quote!(::core::option::Option::None),
         |name| quote!(::core::option::Option::Some(#name)),
     );
     quote_spanned! {span=>
         .route_named(
-            ::oxide_http::__private::axum::http::Method::#method,
+            #krate::__private::axum::http::Method::#method,
             #path,
             #handler,
             #name,
