@@ -1162,6 +1162,7 @@ name = "oxide"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "oxide-config",
  "oxide-http",
  "oxide-orm",
 ]
@@ -1176,6 +1177,31 @@ dependencies = [
  "heck",
  "thiserror",
  "toml",
+]
+
+[[package]]
+name = "oxide-config"
+version = "0.1.0"
+dependencies = [
+ "dotenvy",
+ "oxide-config-macros",
+ "oxide-http",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "toml",
+ "validator",
+]
+
+[[package]]
+name = "oxide-config-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro-crate",
+ "proc-macro2",
+ "quote",
+ "syn 3.0.9",
 ]
 
 [[package]]

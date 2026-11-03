@@ -17,6 +17,7 @@ Then open <http://127.0.0.1:3000/api/v1/health>.
 
 | Path | What goes there |
 | ---- | --------------- |
+| `config/` | Settings as TOML, overridable with environment variables; typed in `src/config.rs` |
 | `src/context.rs` | The service container (`AppContext`) and services such as `AppMailer` |
 | `src/routes/api.rs` | Routes, declared with `routes!` |
 | `src/http/controllers/` | Controllers with up to five actions: `index`, `store`, `show`, `update`, `destroy` |

@@ -10,7 +10,7 @@ use {{crate_name}}::{AppContext, MIGRATOR, build_app};
 async fn app() -> (AppContext, TestClient) {
     let db = DatabasePool::connect_fresh(&database_url()).await.unwrap();
     db.migrate(&MIGRATOR).await.unwrap();
-    let ctx = AppContext::new(db);
+    let ctx = AppContext::new(db, {{crate_name}}::config::load().unwrap());
     (ctx.clone(), TestClient::new(build_app(ctx)))
 }
 

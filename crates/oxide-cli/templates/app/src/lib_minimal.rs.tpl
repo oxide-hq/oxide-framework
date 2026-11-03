@@ -1,5 +1,6 @@
 //! {{name}}, an Oxide application.
 
+pub mod config;
 pub mod context;
 pub mod http;
 pub mod routes;
