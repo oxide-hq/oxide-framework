@@ -11,7 +11,7 @@ use oxide_orm::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-const SCHEMA: &str = r"
+const SCHEMA: &str = r#"
     CREATE TABLE posts (
         id        INTEGER PRIMARY KEY AUTOINCREMENT,
         author_id INTEGER NOT NULL,
@@ -26,7 +26,13 @@ const SCHEMA: &str = r"
         rating     INTEGER,
         created_on DATE    NOT NULL
     );
-";
+    CREATE TABLE authors (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        "displayName" TEXT    NOT NULL,
+        mail          TEXT    NOT NULL
+    );
+    CREATE TABLE tags (id INTEGER PRIMARY KEY AUTOINCREMENT);
+"#;
 
 // --- Models (no manual RouteBindable impls) ---------------------------------------------------
 
@@ -48,6 +54,22 @@ pub struct Comment {
     pub body: String,
     pub rating: Option<i64>,
     pub created_on: NaiveDate,
+}
+
+/// Column names follow sqlx's `rename_all` / `rename` mapping.
+#[derive(Debug, Clone, sqlx::FromRow, Model)]
+#[sqlx(rename_all = "camelCase")]
+pub struct Author {
+    pub id: i64,
+    pub display_name: String,
+    #[sqlx(rename = "mail")]
+    pub email: String,
+}
+
+/// A model with nothing but its key.
+#[derive(Debug, Clone, sqlx::FromRow, Model)]
+pub struct Tag {
+    pub id: i64,
 }
 
 // --- HTTP layer -----------------------------------------------------------------------------
@@ -337,6 +359,10 @@ async fn generated_sql_binds_every_value() {
         r#"SELECT * FROM "posts" WHERE "title" LIKE ? ESCAPE '\' AND "published" = ? ORDER BY "id" DESC LIMIT ?"#
     );
     assert_eq!(values.len(), 3);
+
+    let (sql, values) = Post::query().where_id_in(Vec::new()).to_sql();
+    assert_eq!(sql, r#"SELECT * FROM "posts" WHERE 0 = 1"#);
+    assert_eq!(values.len(), 0);
 }
 
 #[tokio::test]
@@ -425,6 +451,41 @@ async fn active_record_mutations_relations_and_options() {
     ));
     assert!(matches!(
         post.delete(&db).await,
+        Err(OrmError::NotFound { .. })
+    ));
+}
+
+#[tokio::test]
+async fn sqlx_renames_and_key_only_models() {
+    let db = database().await;
+
+    let author = Author::create(
+        &db,
+        NewAuthor {
+            display_name: "Ada".into(),
+            email: "ada@example.test".into(),
+        },
+    )
+    .await
+    .unwrap();
+    let mut found = Author::query()
+        .where_display_name("Ada")
+        .where_email_ends_with("example.test")
+        .first_or_fail(&db)
+        .await
+        .unwrap();
+    found.email = "ada@oxide.test".into();
+    found.save(&db).await.unwrap();
+    assert_eq!(
+        Author::find_or_fail(&db, author.id).await.unwrap().email,
+        "ada@oxide.test"
+    );
+
+    let tag = Tag::create(&db, NewTag {}).await.unwrap();
+    tag.save(&db).await.unwrap();
+    tag.delete(&db).await.unwrap();
+    assert!(matches!(
+        tag.save(&db).await,
         Err(OrmError::NotFound { .. })
     ));
 }

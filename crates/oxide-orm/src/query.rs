@@ -354,12 +354,9 @@ impl<M: Model> Query<M> {
                     }
                     values.push(value.clone());
                 }
-                Condition::In {
-                    column,
-                    values: list,
-                } if list.is_empty() => {
-                    let _ = write!(sql, "0 = 1 /* {} IN () */", ident(column));
-                }
+                // `x IN ()` is never true. The column is not echoed into a comment, where
+                // quoting would not protect it.
+                Condition::In { values: list, .. } if list.is_empty() => sql.push_str("0 = 1"),
                 Condition::In {
                     column,
                     values: list,

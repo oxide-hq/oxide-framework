@@ -103,7 +103,18 @@ pub async fn insert<M: Model>(
 pub async fn save<M: Model>(db: &DatabasePool, model: &M) -> Result<(), OrmError> {
     let columns = model.column_values();
     if columns.is_empty() {
-        return Ok(());
+        // Nothing to write, but saving a deleted row must still be a NotFound.
+        let id = model.key().to_string();
+        let exists = Query::<M>::new()
+            .filter(M::PRIMARY_KEY, Op::Eq, model.key())
+            .count(db)
+            .await?
+            > 0;
+        return if exists {
+            Ok(())
+        } else {
+            Err(OrmError::not_found(M::NAME, Some(id)))
+        };
     }
     let mut sql = format!("UPDATE {} SET ", ident(M::TABLE));
     let mut values = Vec::with_capacity(columns.len() + 1);

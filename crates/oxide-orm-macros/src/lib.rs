@@ -79,7 +79,8 @@ fn expand(input: &DeriveInput) -> syn::Result<TokenStream2> {
         ));
     };
 
-    let (columns, pk_index) = parse_columns(ident, fields)?;
+    let rename_all = sqlx_rename_all(input)?;
+    let (columns, pk_index) = parse_columns(ident, fields, rename_all.as_deref())?;
     let pk = &columns[pk_index];
     if pk.optional {
         return Err(syn::Error::new_spanned(
@@ -174,9 +175,11 @@ fn expand(input: &DeriveInput) -> syn::Result<TokenStream2> {
 fn parse_columns<'a>(
     ident: &Ident,
     fields: &'a syn::FieldsNamed,
+    rename_all: Option<&str>,
 ) -> syn::Result<(Vec<Column<'a>>, usize)> {
     let mut columns = Vec::new();
     let mut pk_index = None;
+    let mut default_pk = None;
     for field in &fields.named {
         let field_ident = field.ident.as_ref().expect("named field");
         if parse_field_attrs(field)? {
@@ -188,25 +191,34 @@ fn parse_columns<'a>(
             }
             pk_index = Some(columns.len());
         }
+        let field_name = field_ident.to_string().trim_start_matches("r#").to_owned();
+        // Column names follow sqlx's `FromRow` mapping so queries hit the columns it reads.
+        let name = match sqlx_rename(field)? {
+            Some(name) => name,
+            None => {
+                rename_all.map_or_else(|| field_name.clone(), |case| apply_case(&field_name, case))
+            }
+        };
+        if field_name == "id" {
+            default_pk = Some(columns.len());
+        }
         let (value_ty, optional) =
             option_inner(&field.ty).map_or((&field.ty, false), |inner| (inner, true));
         columns.push(Column {
             ident: field_ident,
-            name: field_ident.to_string().trim_start_matches("r#").to_owned(),
+            name,
             ty: &field.ty,
             value_ty,
             optional,
             kind: kind_of(value_ty),
         });
     }
-    let pk_index = pk_index
-        .or_else(|| columns.iter().position(|c| c.name == "id"))
-        .ok_or_else(|| {
-            syn::Error::new_spanned(
-                ident,
-                "`Model` needs a primary key: name a field `id` or mark one `#[model(primary_key)]`",
-            )
-        })?;
+    let pk_index = pk_index.or(default_pk).ok_or_else(|| {
+        syn::Error::new_spanned(
+            ident,
+            "`Model` needs a primary key: name a field `id` or mark one `#[model(primary_key)]`",
+        )
+    })?;
     Ok((columns, pk_index))
 }
 
@@ -563,6 +575,83 @@ fn parse_field_attrs(field: &syn::Field) -> syn::Result<bool> {
     Ok(primary_key)
 }
 
+/// The struct-level `#[sqlx(rename_all = "...")]`, if any.
+fn sqlx_rename_all(input: &DeriveInput) -> syn::Result<Option<String>> {
+    let mut rename_all = None;
+    for attr in input.attrs.iter().filter(|a| a.path().is_ident("sqlx")) {
+        attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("rename_all") {
+                let lit = meta.value()?.parse::<LitStr>()?;
+                if !CASES.contains(&lit.value().as_str()) {
+                    return Err(syn::Error::new_spanned(
+                        &lit,
+                        "unsupported `rename_all` case",
+                    ));
+                }
+                rename_all = Some(lit.value());
+            } else if meta.input.peek(syn::Token![=]) {
+                meta.value()?.parse::<syn::Expr>()?;
+            }
+            Ok(())
+        })?;
+    }
+    Ok(rename_all)
+}
+
+/// A field's `#[sqlx(rename = "...")]`, rejecting `FromRow` options the model cannot mirror.
+fn sqlx_rename(field: &syn::Field) -> syn::Result<Option<String>> {
+    let mut rename = None;
+    for attr in field.attrs.iter().filter(|a| a.path().is_ident("sqlx")) {
+        attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("rename") {
+                rename = Some(meta.value()?.parse::<LitStr>()?.value());
+                Ok(())
+            } else if meta.path.is_ident("default") {
+                Ok(())
+            } else {
+                Err(meta.error(
+                    "`Model` supports only `#[sqlx(rename)]` and `#[sqlx(default)]` on fields",
+                ))
+            }
+        })?;
+    }
+    Ok(rename)
+}
+
+/// The `rename_all` cases sqlx supports.
+const CASES: &[&str] = &[
+    "lowercase",
+    "snake_case",
+    "UPPERCASE",
+    "SCREAMING_SNAKE_CASE",
+    "kebab-case",
+    "camelCase",
+    "PascalCase",
+];
+
+/// Converts a `snake_case` field name to `case` (one of [`CASES`]).
+fn apply_case(field: &str, case: &str) -> String {
+    let capitalize = |word: &str| {
+        let mut chars = word.chars();
+        chars.next().map_or_else(String::new, |first| {
+            first.to_uppercase().chain(chars).collect()
+        })
+    };
+    let words = field.split('_').filter(|w| !w.is_empty());
+    match case {
+        "lowercase" => field.replace('_', "").to_lowercase(),
+        "UPPERCASE" => field.replace('_', "").to_uppercase(),
+        "SCREAMING_SNAKE_CASE" => field.to_uppercase(),
+        "kebab-case" => field.replace('_', "-"),
+        "camelCase" => words
+            .enumerate()
+            .map(|(i, w)| if i == 0 { w.to_owned() } else { capitalize(w) })
+            .collect(),
+        "PascalCase" => words.map(capitalize).collect(),
+        _ => field.to_owned(),
+    }
+}
+
 fn last_segment(ty: &Type) -> Option<&syn::PathSegment> {
     match ty {
         Type::Path(path) if path.qself.is_none() => path.path.segments.last(),
@@ -631,7 +720,7 @@ fn pluralize(word: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{pluralize, snake_case};
+    use super::{apply_case, pluralize, snake_case};
 
     #[test]
     fn names() {
@@ -642,5 +731,15 @@ mod tests {
         assert_eq!(pluralize("day"), "days");
         assert_eq!(pluralize("box"), "boxes");
         assert_eq!(pluralize("blog_post"), "blog_posts");
+    }
+
+    #[test]
+    fn applies_sqlx_rename_all_cases() {
+        assert_eq!(apply_case("author_id", "camelCase"), "authorId");
+        assert_eq!(apply_case("author_id", "PascalCase"), "AuthorId");
+        assert_eq!(apply_case("author_id", "SCREAMING_SNAKE_CASE"), "AUTHOR_ID");
+        assert_eq!(apply_case("author_id", "kebab-case"), "author-id");
+        assert_eq!(apply_case("author_id", "lowercase"), "authorid");
+        assert_eq!(apply_case("author_id", "snake_case"), "author_id");
     }
 }
