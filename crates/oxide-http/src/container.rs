@@ -1,7 +1,7 @@
 //! Service container support: state-backed services and task-local facades.
 //!
-//! Derive [`ServiceContainer`](crate::ServiceContainer) on your application state and
-//! [`Service`](crate::Service) on each service type. Handlers can then take services directly as
+//! Derive [`ServiceContainer`](derive@crate::ServiceContainer) on your application state and
+//! [`Service`](derive@crate::Service) on each service type. Handlers can then take services directly as
 //! arguments, and — inside [`facade_middleware`] — code anywhere in the request's task can reach
 //! the container statically via [`ServiceContainer::current`] / [`ServiceContainer::resolve`].
 
