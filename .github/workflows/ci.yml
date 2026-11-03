@@ -103,3 +103,33 @@ jobs:
         with:
           # Install the channel named in rust-toolchain.toml inside the action's container.
           rust-version: stable
+
+  e2e:
+    name: Scaffold e2e
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: oxide
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      OXIDE_TEST_POSTGRES_URL: postgres://postgres:oxide@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: rui314/setup-mold@v1
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # The generated apps build into target/e2e; cache it with the workspace target.
+          cache-directories: target/e2e
+      # Generates apps with `oxide new` and `make:*`, then runs each app's own `cargo test`.
+      - run: cargo test -p oxide-cli --test bootstrapper_test --locked -- --ignored

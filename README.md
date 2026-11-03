@@ -14,7 +14,21 @@ ergonomics — a service container, form requests, route-model binding, a fluent
 everything is checked at compile time. It is built on [Axum 0.8](https://docs.rs/axum) and
 [Tokio](https://tokio.rs).
 
-> **Status:** early development (Phase 1). APIs will change.
+> **Status:** early development. APIs will change.
+
+## Quickstart
+
+```bash
+cargo install --git https://github.com/oxide-hq/oxide-framework oxide-cli
+oxide new blog-app      # guided: preset, database, starter, AI agent skill
+cd blog-app
+cargo test              # the starter's feature tests
+cargo run               # http://127.0.0.1:3000/api/v1/posts
+```
+
+Inside an app, `oxide make:model Comment -m`, `oxide make:controller Comment --resource` and
+`oxide make:request StoreCommentRequest` generate files and register their modules, like
+`php artisan make:*`.
 
 ## Documentation
 
@@ -241,6 +255,7 @@ dependencies.
 | [`oxide-http-macros`](crates/oxide-http-macros)  | `Service`, `ServiceContainer` and `FormRequest` derives (re-exported by `oxide-http`) |
 | [`oxide-orm`](crates/oxide-orm)                  | `DatabasePool`, `Model` trait, typed queries, migrations, `OrmError` (sqlx: SQLite, PostgreSQL) |
 | [`oxide-orm-macros`](crates/oxide-orm-macros)    | `#[derive(Model)]` (re-exported by `oxide-orm`) |
+| [`oxide-cli`](crates/oxide-cli)                  | The `oxide` binary: `oxide new` and the `make:*` generators |
 
 ## Development
 
@@ -254,6 +269,7 @@ just test       # cargo test --workspace
 just lint       # cargo clippy --workspace --all-targets -- -D warnings
 just fmt        # cargo fmt --all
 just ci         # fmt-check + lint + test
+just e2e        # scaffold apps with `oxide new` and run their own tests
 just deny       # cargo deny check (needs cargo-deny)
 just expand     # cargo expand (needs cargo-expand)
 ```

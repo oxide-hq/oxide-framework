@@ -30,6 +30,9 @@ extern crate self as oxide;
 pub use oxide_http as http;
 pub use oxide_orm as orm;
 
+/// Axum, which Oxide builds on: `oxide::axum::serve`, `oxide::axum::Router`, Tower layers, ...
+pub use axum;
+
 pub use oxide_http::{
     Authorize, Bind, FormRequest, OxideHttpError, OxideResult, OxideRouter, RouteBindable,
     ServiceContainer, UrlGenerator, Validated, facade_middleware, route, routes, url_for,

@@ -1,0 +1,28 @@
+[package]
+name = "oxide-cli"
+description = "The `oxide` command: a guided `oxide new` installer and Artisan-style `make:*` generators."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "oxide_cli"
+
+# Not documented: the binary shares its name with the `oxide` library crate's docs.
+[[bin]]
+name = "oxide"
+path = "src/main.rs"
+doc = false
+
+[dependencies]
+clap.workspace = true
+cliclack.workspace = true
+console.workspace = true
+heck.workspace = true
+thiserror.workspace = true
+toml.workspace = true
+
+[lints]
+workspace = true

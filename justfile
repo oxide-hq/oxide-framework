@@ -25,6 +25,10 @@ test-pg engine="podman":
     {{engine}} exec oxide-test-pg pg_isready -h 127.0.0.1 || { {{engine}} logs oxide-test-pg; exit 1; }
     OXIDE_TEST_POSTGRES_URL=postgres://postgres:oxide@localhost:55432/postgres cargo test --workspace --all-features
 
+# Scaffold apps with `oxide new` and run their own tests (set OXIDE_TEST_POSTGRES_URL to include PostgreSQL)
+e2e:
+    cargo test -p oxide-cli --test bootstrapper_test -- --ignored
+
 # Clippy with warnings treated as errors
 lint:
     cargo clippy --workspace --all-targets --all-features -- -D warnings

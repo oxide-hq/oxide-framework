@@ -1,0 +1,3 @@
+CREATE TABLE {{table}} (
+    id BIGSERIAL PRIMARY KEY
+);

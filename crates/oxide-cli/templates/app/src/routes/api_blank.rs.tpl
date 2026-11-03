@@ -1,0 +1,18 @@
+//! The JSON API, under `/api/v1`.
+
+use oxide::prelude::*;
+
+use crate::context::AppContext;
+
+/// `GET /api/v1/health`
+pub async fn health() -> Json<serde_json::Value> {
+    Json(serde_json::json!({ "status": "ok" }))
+}
+
+pub fn router() -> OxideRouter<AppContext> {
+    routes! {
+        prefix("/api/v1") {
+            get("/health", health).name("health");
+        }
+    }
+}
