@@ -16,6 +16,7 @@
 //! }
 //! ```
 
+use std::collections::HashMap;
 use std::convert::Infallible;
 use std::sync::Arc;
 
@@ -115,6 +116,112 @@ fn is_uuid(value: &str) -> bool {
             .all(|(group, len)| group.len() == len && group.bytes().all(|b| b.is_ascii_hexdigit()))
 }
 
+/// Parameters captured from the host by [`domain`]: `{account}.example.com` on
+/// `acme.example.com` gives `account = "acme"`. Extract it in a handler.
+#[derive(Debug, Clone, Default)]
+pub struct DomainParams(HashMap<String, String>);
+
+impl DomainParams {
+    pub fn get(&self, name: &str) -> Option<&str> {
+        self.0.get(name).map(String::as_str)
+    }
+}
+
+impl<S: Send + Sync> axum::extract::FromRequestParts<S> for DomainParams {
+    type Rejection = OxideHttpError;
+
+    fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        _state: &S,
+    ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
+        std::future::ready(Ok(parts
+            .extensions
+            .get::<Self>()
+            .cloned()
+            .unwrap_or_default()))
+    }
+}
+
+/// A layer that only lets requests through whose `Host` matches `pattern` (Laravel's
+/// `Route::domain`), answering 404 otherwise. `{name}` captures one label into [`DomainParams`];
+/// the port is ignored. Matching is case-insensitive.
+///
+/// ```ignore
+/// routes! {
+///     middleware(domain("{account}.example.com")) {
+///         get("/dashboard", dashboard);   // dashboard(params: DomainParams)
+///     }
+/// }
+/// ```
+pub fn domain(pattern: &'static str) -> DomainLayer {
+    DomainLayer(pattern)
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct DomainLayer(&'static str);
+
+impl<S> Layer<S> for DomainLayer
+where
+    S: Service<Request, Response = Response, Error = Infallible> + Clone + Send + Sync + 'static,
+    S::Future: Send + 'static,
+{
+    type Service = BoxCloneSyncService<Request, Response, Infallible>;
+
+    fn layer(&self, inner: S) -> Self::Service {
+        let pattern = self.0;
+        let middleware = from_fn(move |mut request: Request, next: Next| {
+            let host = request
+                .headers()
+                .get(axum::http::header::HOST)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_owned)
+                .or_else(|| request.uri().host().map(str::to_owned));
+            let captured = host.as_deref().and_then(|host| match_host(pattern, host));
+            if let Some(params) = &captured {
+                request.extensions_mut().insert(params.clone());
+            }
+            async move {
+                if captured.is_some() {
+                    next.run(request).await
+                } else {
+                    OxideHttpError::NotFound("Not Found".to_owned()).into_response()
+                }
+            }
+        });
+        BoxCloneSyncService::new(middleware.layer(inner))
+    }
+}
+
+/// Matches `host` (port ignored) against label patterns like `{account}.example.com`.
+fn match_host(pattern: &str, host: &str) -> Option<DomainParams> {
+    let host = host.rsplit_once(':').map_or(host, |(name, port)| {
+        if port.bytes().all(|b| b.is_ascii_digit()) {
+            name
+        } else {
+            host
+        }
+    });
+    let host = host.to_ascii_lowercase();
+    let pattern = pattern.to_ascii_lowercase();
+    let pattern_labels: Vec<&str> = pattern.split('.').collect();
+    let host_labels: Vec<&str> = host.split('.').collect();
+    if pattern_labels.len() != host_labels.len() {
+        return None;
+    }
+    let mut params = HashMap::new();
+    for (expected, actual) in pattern_labels.iter().zip(&host_labels) {
+        if let Some(name) = expected.strip_prefix('{').and_then(|n| n.strip_suffix('}')) {
+            if actual.is_empty() {
+                return None;
+            }
+            params.insert(name.to_owned(), (*actual).to_owned());
+        } else if expected != actual {
+            return None;
+        }
+    }
+    Some(DomainParams(params))
+}
+
 impl std::fmt::Debug for Constraint {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Constraint")
@@ -125,7 +232,17 @@ impl std::fmt::Debug for Constraint {
 
 #[cfg(test)]
 mod tests {
-    use super::is_uuid;
+    use super::{is_uuid, match_host};
+
+    #[test]
+    fn hosts_match_label_patterns() {
+        let params = match_host("{account}.example.com", "Acme.example.com:8080").unwrap();
+        assert_eq!(params.get("account"), Some("acme"));
+        assert!(match_host("{account}.example.com", "example.com").is_none());
+        assert!(match_host("{account}.example.com", "a.other.com").is_none());
+        assert!(match_host("api.example.com", "api.example.com").is_some());
+        assert!(match_host("api.example.com", "www.example.com").is_none());
+    }
 
     #[test]
     fn uuids_need_the_hyphenated_shape() {
