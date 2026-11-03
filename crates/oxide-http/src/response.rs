@@ -185,6 +185,21 @@ pub mod redirect {
     }
 }
 
+/// A handler that redirects to a fixed location, for `get("/old", redirect_to("/new"))` (Laravel's
+/// `Route::redirect`). `302 Found`.
+pub fn redirect_to(
+    location: &'static str,
+) -> impl Fn() -> std::future::Ready<Response> + Clone + Send + Sync + 'static {
+    move || std::future::ready(redirect::away(location))
+}
+
+/// Like [`redirect_to`] with `301 Moved Permanently` (Laravel's `Route::permanentRedirect`).
+pub fn permanent_redirect_to(
+    location: &'static str,
+) -> impl Fn() -> std::future::Ready<Response> + Clone + Send + Sync + 'static {
+    move || std::future::ready(redirect::away(location).with_status(StatusCode::MOVED_PERMANENTLY))
+}
+
 /// A cookie's `SameSite` policy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SameSite {

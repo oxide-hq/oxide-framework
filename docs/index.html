@@ -915,6 +915,14 @@ kbd {
         // also where_alpha, where_alpha_numeric, where_uuid and where_fn("slug", |v| v.len() &lt; 40)
     }
   </script>
+  <h2>Fallback and redirect routes</h2>
+  <script type="text/plain" class="code" data-lang="rust">
+    let router: OxideRouter&lt;()&gt; = routes! {
+        get("/old", redirect_to("/new"));              // 302, Route::redirect
+        get("/moved", permanent_redirect_to("/new"));  // 301, Route::permanentRedirect
+    };
+    let router = router.fallback(not_found);           // Route::fallback
+  </script>
 </section>
 
 <section class="page" id="middleware" data-title="Middleware" data-group="The Basics">

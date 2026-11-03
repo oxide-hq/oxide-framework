@@ -40,7 +40,9 @@ pub use input::Input;
 pub use oxide_http_macros::*;
 pub use request::{Authorize, FormRequest, Validated};
 pub use request_ext::{RequestExt, negotiate};
-pub use response::{Cookie, Responsable, ResponseExt, SameSite};
+pub use response::{
+    Cookie, Responsable, ResponseExt, SameSite, permanent_redirect_to, redirect_to,
+};
 pub use routing::{OxideRouter, RouteMetadata, RouteRegistry, UrlGenerator, url_for};
 pub use upload::{FileRules, UploadedFile, Uploads};
 
@@ -63,7 +65,9 @@ pub mod prelude {
     pub use crate::input::Input;
     pub use crate::request::{Authorize, FormRequest, Validated};
     pub use crate::request_ext::RequestExt;
-    pub use crate::response::{self, Cookie, Responsable, ResponseExt};
+    pub use crate::response::{
+        self, Cookie, Responsable, ResponseExt, permanent_redirect_to, redirect_to,
+    };
     pub use crate::route;
     pub use crate::routing::{OxideRouter, UrlGenerator, url_for};
     pub use crate::testing::{TestClient, TestResponse};
