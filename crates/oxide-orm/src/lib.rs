@@ -49,3 +49,28 @@ pub mod prelude {
     pub use crate::model::Model;
     pub use oxide_orm_macros::Model;
 }
+
+/// Generated method names that would collide are a compile error.
+///
+/// ```compile_fail
+/// #[derive(sqlx::FromRow, oxide_orm::Model)]
+/// struct Score {
+///     id: i64,
+///     score: i64,
+///     score_gt: bool, // `where_score_gt` already exists for `score`
+/// }
+/// ```
+///
+/// Renaming the field (and keeping the column with `#[sqlx(rename)]`) resolves it:
+///
+/// ```
+/// #[derive(sqlx::FromRow, oxide_orm::Model)]
+/// struct Score {
+///     id: i64,
+///     score: i64,
+///     #[sqlx(rename = "score_gt")]
+///     above_threshold: bool,
+/// }
+/// ```
+#[cfg(doctest)]
+pub struct CollidingMethodNames;
