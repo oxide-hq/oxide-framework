@@ -92,17 +92,22 @@ impl CommandContext<'_> {
     }
 }
 
-/// Text a command writes. Collected, so tests can read it; the console prints it at the end of
-/// each command (and stderr lines to stderr).
+/// Text a command writes. It is always collected, so tests can read it; under [`Console::run`] it
+/// is also printed as it is written, so long-running commands show progress.
 #[derive(Debug, Default)]
 pub struct Output {
     stdout: String,
     stderr: String,
+    /// Print as it is written (the console does), instead of only collecting.
+    live: bool,
 }
 
 impl Output {
     pub fn line(&mut self, text: &str) {
         let _ = writeln!(self.stdout, "{text}");
+        if self.live {
+            println!("{text}");
+        }
     }
 
     pub fn info(&mut self, text: &str) {
@@ -110,11 +115,18 @@ impl Output {
     }
 
     pub fn warn(&mut self, text: &str) {
-        let _ = writeln!(self.stderr, "warning: {text}");
+        self.err_line(&format!("warning: {text}"));
     }
 
     pub fn error(&mut self, text: &str) {
-        let _ = writeln!(self.stderr, "error: {text}");
+        self.err_line(&format!("error: {text}"));
+    }
+
+    fn err_line(&mut self, text: &str) {
+        let _ = writeln!(self.stderr, "{text}");
+        if self.live {
+            eprintln!("{text}");
+        }
     }
 
     /// A left-aligned table.
@@ -213,23 +225,23 @@ impl Console {
         I: IntoIterator<Item = T>,
         T: Into<String>,
     {
-        let result = self
-            .execute(args.into_iter().map(Into::into).collect())
-            .await;
-        print!("{}", result.output.stdout());
-        eprint!("{}", result.output.stderr());
-        result.exit_code
+        self.execute(args.into_iter().map(Into::into).collect(), true)
+            .await
+            .exit_code
     }
 
     /// Like [`run`](Self::run) but returns the output instead of printing it: for tests.
     /// `console.call("mail:send 42")` splits on whitespace.
     pub async fn call(&self, line: &str) -> CommandResult {
-        self.execute(line.split_whitespace().map(str::to_owned).collect())
+        self.execute(line.split_whitespace().map(str::to_owned).collect(), false)
             .await
     }
 
-    async fn execute(&self, mut args: Vec<String>) -> CommandResult {
-        let mut output = Output::default();
+    async fn execute(&self, mut args: Vec<String>, live: bool) -> CommandResult {
+        let mut output = Output {
+            live,
+            ..Output::default()
+        };
         let name = if args.is_empty() {
             "list".to_owned()
         } else {
