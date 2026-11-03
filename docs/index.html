@@ -528,6 +528,7 @@ kbd {
       <tr><td><code>oxide-http-macros</code></td><td>The <code>Service</code>, <code>ServiceContainer</code> and <code>FormRequest</code> derives and the <code>routes!</code> macro.</td></tr>
       <tr><td><code>oxide-orm</code></td><td><code>DatabasePool</code>, the <code>Model</code> trait, the query builder, migrations and <code>OrmError</code>, on sqlx with SQLite or PostgreSQL.</td></tr>
       <tr><td><code>oxide-orm-macros</code></td><td><code>#[derive(Model)]</code>.</td></tr>
+      <tr><td><code>oxide-cli</code></td><td>The <code>oxide</code> command: <a href="#/installation"><code>oxide new</code></a> and the <a href="#/console"><code>make:*</code> generators</a>. Install it; don't depend on it.</td></tr>
     </tbody>
   </table>
 </section>
@@ -535,33 +536,61 @@ kbd {
 <section class="page" id="installation" data-title="Installation" data-group="Prologue">
   <p class="eyebrow">Prologue</p>
   <h1>Installation</h1>
-  <p class="lead">The quickest way to learn a framework is to run something real. In a few minutes you will add Oxide to a Cargo project and serve your first route.</p>
+  <p class="lead">The quickest way to learn a framework is to run something real. In a few minutes the <code>oxide</code> installer will scaffold an application with a model, a controller, validation and passing feature tests.</p>
 
   <h2>Requirements</h2>
   <p>Oxide targets current stable Rust and promises to keep building on older compilers back to its minimum supported version. That gives you modern language features without forcing an upgrade the moment a new toolchain ships.</p>
   <ul>
     <li>Rust <strong>1.88</strong> or newer (edition 2024).</li>
-    <li>A database: SQLite is bundled with sqlx, so there is nothing to install. PostgreSQL works too, through the <code>postgres</code> feature.</li>
+    <li>A database: SQLite is bundled with sqlx, so there is nothing to install. PostgreSQL works too.</li>
   </ul>
 
-  <h2>Adding Oxide to your project</h2>
-  <p>Oxide is not on crates.io yet, so you depend on it straight from GitHub. You also add the crates whose derives appear in your own code, such as <code>serde</code>, <code>validator</code> and <code>sqlx</code>.</p>
+  <h2>Installing the Oxide installer</h2>
+  <p>Oxide is not on crates.io yet, so install the CLI straight from GitHub. It puts an <code>oxide</code> binary in <code>~/.cargo/bin</code>.</p>
+  <script type="text/plain" data-lang="bash">
+    cargo install --git https://github.com/oxide-hq/oxide-framework oxide-cli
+  </script>
+
+  <h2>Creating an application</h2>
+  <p>Run <code>oxide new</code> and answer a few questions, much like <code>laravel new</code>. The installer asks for a name, a preset, a database, a starter and whether to install the AI agent skill.</p>
+  <script type="text/plain" data-lang="bash">
+    oxide new blog-app
+    cd blog-app
+    cargo test     # the starter's feature tests
+    cargo run      # http://127.0.0.1:3000/api/v1/posts
+  </script>
+  <p>Any answer you pass as a flag skips its question, and <code>-n</code> skips them all and uses the defaults: the <code>api</code> preset, SQLite, the blog starter and the agent skill. That suits scripts and CI.</p>
+  <script type="text/plain" data-lang="bash">
+    oxide new shop --database postgres --starter blank -n
+  </script>
+  <table>
+    <thead><tr><th>Preset</th><th>What you get</th></tr></thead>
+    <tbody>
+      <tr><td><code>api</code></td><td>A JSON API: models, migrations, controllers, form requests and feature tests. The <code>blog</code> starter adds a working <code>Post</code> resource; <code>blank</code> starts with a health check.</td></tr>
+      <tr><td><code>minimal</code></td><td>Routing and the service container only, with no database.</td></tr>
+    </tbody>
+  </table>
+  <div class="callout note">
+    <p>A <code>fullstack</code> preset with server-rendered views is planned. It will arrive with Oxide's templating layer.</p>
+  </div>
+  <p>A PostgreSQL application reads its connection from <code>DATABASE_URL</code>, both when it runs and in its tests. Each test gets its own schema, so they can run in parallel against one server. Copy <code>.env.example</code> to <code>.env</code> and set the URL before you run <code>cargo test</code>.</p>
+  <p>Read <a href="#/directory-structure">Directory Structure</a> next for a tour of the files, and <a href="#/console">Artisan Console</a> for the generators.</p>
+
+  <h2>Adding Oxide to an existing project</h2>
+  <p>You can also add Oxide by hand. Depend on the <code>oxide</code> crate from GitHub, plus the crates whose derives appear in your own code, such as <code>serde</code>, <code>validator</code> and <code>sqlx</code>.</p>
   <script type="text/plain" data-lang="ini" data-label="Cargo.toml">
     [dependencies]
     oxide = { git = "https://github.com/oxide-hq/oxide-framework" } # features = ["postgres"]
 
-    axum = "0.8"
     tokio = { version = "1", features = ["full"] }
     serde = { version = "1", features = ["derive"] }
     validator = { version = "0.21", features = ["derive"] }
-    sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "macros", "migrate", "chrono"] }
+    sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "macros", "migrate"] }
   </script>
   <div class="callout note">
     <p>Oxide uses sqlx <strong>0.8</strong> rather than 0.9, because 0.9 needs Rust 1.94, which is above Oxide's minimum supported version. Pin the same major in your project so you don't compile two copies of sqlx.</p>
   </div>
-
-  <h2>Your first application</h2>
-  <p>An Oxide application is an Axum application with better ergonomics. You describe your state, declare your routes, then hand the result to <code>axum::serve</code>.</p>
+  <p>An Oxide application is an Axum application with better ergonomics. You describe your state, declare your routes, then hand the result to <code>axum::serve</code>. Oxide re-exports Axum as <code>oxide::axum</code>.</p>
   <script type="text/plain" data-lang="rust" data-label="src/main.rs">
     use oxide::prelude::*;
 
@@ -584,11 +613,10 @@ kbd {
         let app = router.with_state(AppContext { db }).into_axum();
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await?;
-        axum::serve(listener, app).await?;
+        oxide::axum::serve(listener, app).await?;
         Ok(())
     }
   </script>
-  <p>Run it with <code>cargo run</code> and visit <code>http://127.0.0.1:3000</code>.</p>
 
   <h2>Working on Oxide itself</h2>
   <p>If you are contributing to the framework, the repository ships a <code>justfile</code> with the same checks CI runs. Running it before you push saves you a round trip.</p>
@@ -596,7 +624,58 @@ kbd {
     git clone https://github.com/oxide-hq/oxide-framework
     cd oxide-framework
     just ci        # fmt-check, clippy -D warnings, tests, agent-rule drift check
+    just e2e       # scaffold apps with `oxide new` and run their own tests
   </script>
+</section>
+
+<section class="page" id="directory-structure" data-title="Directory Structure" data-group="Prologue">
+  <p class="eyebrow">Prologue</p>
+  <h1>Directory Structure</h1>
+  <p class="lead">An application from <code>oxide new</code> is an ordinary Cargo package laid out like a Laravel app, so you know where each piece lives before you open a file.</p>
+
+  <h2>The application tree</h2>
+  <p>This is the <code>api</code> preset with the blog starter. The blank starter has the same folders with empty modules and a health-check test.</p>
+  <script type="text/plain" data-lang="text">
+    blog-app/
+    ├── Cargo.toml                 # dependencies, plus [package.metadata.oxide] for the generators
+    ├── .env.example               # APP_PORT and DATABASE_URL
+    ├── build.rs                   # rebuilds when a migration changes
+    ├── database/
+    │   └── migrations/
+    │       └── 0001_create_posts_table.sql
+    ├── src/
+    │   ├── main.rs                # loads .env, boots and serves
+    │   ├── lib.rs                 # boot() and build_app(), shared with the tests
+    │   ├── context.rs             # AppContext: the service container
+    │   ├── models/                # #[derive(Model)] structs
+    │   ├── http/
+    │   │   ├── controllers/       # resource controllers
+    │   │   └── requests/          # FormRequest structs
+    │   └── routes/
+    │       └── api.rs             # the routes! table
+    ├── tests/
+    │   └── post_feature_test.rs   # HTTP feature tests on a fresh database
+    ├── .claude/skills/oxide-eloquent-rust/SKILL.md
+    └── .cursor/rules/oxide-eloquent-rust.mdc
+  </script>
+
+  <h2>Where things go</h2>
+  <table>
+    <thead><tr><th>Path</th><th>Laravel equivalent</th><th>Holds</th></tr></thead>
+    <tbody>
+      <tr><td><code>src/models</code></td><td><code>app/Models</code></td><td>One file per model. <code>mod.rs</code> re-exports each one, so you write <code>crate::models::Post</code>.</td></tr>
+      <tr><td><code>src/http/controllers</code></td><td><code>app/Http/Controllers</code></td><td>Controllers with the five resource actions.</td></tr>
+      <tr><td><code>src/http/requests</code></td><td><code>app/Http/Requests</code></td><td>Validated request bodies.</td></tr>
+      <tr><td><code>src/routes/api.rs</code></td><td><code>routes/api.php</code></td><td>The <code>routes!</code> table, under the <code>/api/v1</code> prefix.</td></tr>
+      <tr><td><code>src/context.rs</code></td><td>the service container</td><td>Every service handlers can take as an argument, such as <code>DatabasePool</code> and the mailer.</td></tr>
+      <tr><td><code>database/migrations</code></td><td><code>database/migrations</code></td><td>Numbered SQL files, applied by <code>boot()</code> on start-up and in each test.</td></tr>
+      <tr><td><code>tests</code></td><td><code>tests/Feature</code></td><td>Feature tests that call the app through <code>TestClient</code>.</td></tr>
+    </tbody>
+  </table>
+  <p>The routes and the state live in <code>lib.rs</code> rather than <code>main.rs</code>, so the tests build exactly the app you run. Each test calls <code>DatabasePool::connect_fresh</code> and the migrator, like Laravel's <code>RefreshDatabase</code>.</p>
+  <div class="callout tip">
+    <p>The <code>minimal</code> preset drops <code>database/</code>, <code>src/models</code> and the request and controller folders. Add them later with the <a href="#/console">generators</a> once you switch to the <code>api</code> preset.</p>
+  </div>
 </section>
 
 <!-- ================================================================ THE BASICS -->
@@ -1148,6 +1227,63 @@ kbd {
         Ok(Json(Post::find_or_fail(&db, id).await?)) // 404 if missing, 500 if the database fails
     }
   </script>
+</section>
+
+<section class="page" id="console" data-title="Artisan Console" data-group="The Basics">
+  <p class="eyebrow">The Basics</p>
+  <h1>Artisan Console</h1>
+  <p class="lead">The <code>oxide</code> command creates applications and generates the files you would otherwise copy by hand. Each generator writes the file and registers its module, so the code compiles straight away.</p>
+
+  <h2>Generators</h2>
+  <p>Run the generators from your application's root folder. They read <code>[package.metadata.oxide]</code> in <code>Cargo.toml</code> to learn which database you use.</p>
+  <div class="compare">
+    <script type="text/plain" data-lang="bash" data-side="php">
+      php artisan make:model Comment -m
+      php artisan make:controller CommentController --resource
+      php artisan make:request StoreCommentRequest
+    </script>
+    <script type="text/plain" data-lang="bash">
+      oxide make:model Comment -m
+      oxide make:controller Comment --resource
+      oxide make:request StoreCommentRequest
+    </script>
+  </div>
+  <table>
+    <thead><tr><th>Command</th><th>Creates</th><th>Registers</th></tr></thead>
+    <tbody>
+      <tr><td><code>make:model Comment</code></td><td><code>src/models/comment.rs</code>, with <code>#[model(table = "comments")]</code></td><td><code>pub mod comment;</code> and <code>pub use comment::Comment;</code></td></tr>
+      <tr><td><code>make:model Comment -m</code></td><td>also <code>database/migrations/NNNN_create_comments_table.sql</code>, in your database's dialect</td><td>nothing: <code>boot()</code> picks it up</td></tr>
+      <tr><td><code>make:controller Comment</code></td><td><code>src/http/controllers/comment_controller.rs</code></td><td><code>pub mod comment_controller;</code></td></tr>
+      <tr><td><code>make:controller Comment --resource</code></td><td>the same, with the five resource actions answering <code>501 Not Implemented</code> until you fill them in</td><td>the same</td></tr>
+      <tr><td><code>make:request StoreCommentRequest</code></td><td><code>src/http/requests/store_comment_request.rs</code></td><td><code>pub mod store_comment_request;</code></td></tr>
+    </tbody>
+  </table>
+  <p>Names are converted for you: <code>comment</code>, <code>Comment</code> and <code>CommentController</code> all give <code>CommentController</code>. A generator refuses to overwrite an existing file unless you pass <code>--force</code>, and registering a module twice changes nothing.</p>
+  <p>Generators don't touch your routes. Add the new controller to <code>src/routes/api.rs</code> yourself:</p>
+  <script type="text/plain" data-lang="rust" data-label="src/routes/api.rs">
+    routes! {
+        prefix("/api/v1") {
+            resource("/posts", PostController);
+            resource("/comments", CommentController);
+        }
+    }
+  </script>
+
+  <h2><code>oxide new</code> options</h2>
+  <table>
+    <thead><tr><th>Flag</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td><code>--preset api|minimal</code></td><td>The application preset. Defaults to <code>api</code>.</td></tr>
+      <tr><td><code>--database sqlite|postgres</code></td><td>The database. Defaults to <code>sqlite</code>. Not for <code>minimal</code>.</td></tr>
+      <tr><td><code>--starter blog|blank</code></td><td>A working <code>Post</code> resource, or only a health check. Defaults to <code>blog</code>. Not for <code>minimal</code>.</td></tr>
+      <tr><td><code>--ai-skill</code>, <code>--no-ai-skill</code></td><td>Install the <a href="#/agent-skill">agent skill</a> for Claude Code and Cursor. On by default.</td></tr>
+      <tr><td><code>--git</code></td><td>Run <code>git init</code> in the new folder.</td></tr>
+      <tr><td><code>-n</code>, <code>--no-interaction</code></td><td>Never prompt. Without a terminal, <code>oxide new</code> never prompts anyway.</td></tr>
+      <tr><td><code>--force</code></td><td>Write into a folder that is not empty.</td></tr>
+      <tr><td><code>--oxide-path &lt;dir&gt;</code></td><td>Depend on a local Oxide checkout (its <code>crates/oxide</code> folder) instead of GitHub.</td></tr>
+    </tbody>
+  </table>
+  <p>Run <code>oxide help &lt;command&gt;</code> for the full list.</p>
 </section>
 
 <!-- ================================================================ DATABASE -->
@@ -1794,7 +1930,8 @@ kbd {
     panes.className = "compare-panes";
     const tabs = sources.map((script, i) => {
       const lang = script.dataset.lang;
-      const key = lang === "php" ? "php" : "rust";
+      // `data-side="php"` puts a non-PHP block (an `artisan` command) on the Laravel side.
+      const key = script.dataset.side || (lang === "php" ? "php" : "rust");
       const tabId = `cmp-${index}-${key}-tab`;
       const paneId = `cmp-${index}-${key}`;
       const tab = document.createElement("button");
