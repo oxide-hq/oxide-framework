@@ -1757,6 +1757,22 @@ kbd {
     </tbody>
   </table>
   <p>Run <code>oxide help &lt;command&gt;</code> for the full list.</p>
+  <h2>Application commands</h2>
+  <p>Custom commands run inside the booted application, so they see your providers, container and configuration. Implement <code>Command</code>, parse arguments with a clap <code>Parser</code>, and register with <code>Application::builder().command(..)</code>. <code>application.console().run(args)</code> dispatches (<code>list</code> by default) and returns the exit code; <code>call("greet Ada --times 2")</code> returns the output for tests.</p>
+  <script type="text/plain" class="code" data-lang="rust">
+    impl Command for Greet {
+        fn name(&amp;self) -&gt; &amp;'static str { "greet" }
+        fn about(&amp;self) -&gt; &amp;'static str { "Say hello" }
+        fn handle&lt;'a&gt;(&amp;'a self, ctx: &amp;'a mut CommandContext&lt;'_&gt;) -&gt; CommandFuture&lt;'a&gt; {
+            Box::pin(async move {
+                let args: GreetArgs = ctx.parse()?;      // clap: typed args, --help
+                ctx.out.info(&amp;format!("hello {}", args.name));
+                Ok(0)
+            })
+        }
+    }
+    console.call("greet Ada").await.assert_success().assert_output_contains("hello Ada");
+  </script>
 </section>
 
 <section class="page" id="support" data-title="Support Helpers" data-group="The Basics">

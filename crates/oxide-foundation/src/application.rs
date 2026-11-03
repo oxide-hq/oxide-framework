@@ -32,6 +32,7 @@ pub struct ApplicationBuilder {
     global_middleware: Vec<Arc<dyn Middleware>>,
     aliases: Vec<(String, Arc<dyn Middleware>)>,
     groups: Vec<(String, Vec<String>)>,
+    commands: Vec<Arc<dyn crate::Command>>,
 }
 
 impl fmt::Debug for ApplicationBuilder {
@@ -47,6 +48,12 @@ impl ApplicationBuilder {
     /// The loaded configuration. It is bound in the container as `Configuration` too.
     pub fn config(mut self, configuration: Configuration) -> Self {
         self.configuration = Some(configuration);
+        self
+    }
+
+    /// Registers a console command, run with `application.console()`.
+    pub fn command(mut self, command: impl crate::Command) -> Self {
+        self.commands.push(Arc::new(command));
         self
     }
 
@@ -200,7 +207,11 @@ impl ApplicationBuilder {
                 exception_middleware,
             ))
             .layer(middleware::from_fn(oxide_log::context_middleware));
-        Ok(Application { app, router })
+        Ok(Application {
+            app,
+            router,
+            commands: self.commands,
+        })
     }
 }
 
@@ -220,6 +231,7 @@ async fn scope_middleware(
 pub struct Application {
     app: App,
     router: Router,
+    commands: Vec<Arc<dyn crate::Command>>,
 }
 
 impl Application {
@@ -234,7 +246,13 @@ impl Application {
             global_middleware: Vec::new(),
             aliases: Vec::new(),
             groups: Vec::new(),
+            commands: Vec::new(),
         }
+    }
+
+    /// The console kernel with every registered command.
+    pub fn console(&self) -> crate::Console {
+        crate::Console::new(self.app.clone(), self.commands.clone())
     }
 
     pub fn app(&self) -> &App {
