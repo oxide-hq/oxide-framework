@@ -194,6 +194,10 @@ fn make_commands_create_and_register_files() {
         );
     }
     assert!(read(&app, "src/models/comment.rs").contains(r#"#[model(table = "comments")]"#));
+    assert!(
+        read(&app, "database/migrations/0002_create_comments_table.sql")
+            .contains(r#"CREATE TABLE "comments""#)
+    );
 
     // Existing files are kept unless forced, and registration never duplicates.
     let error = fails(oxide(&app, &["make:model", "Comment"]));
@@ -282,6 +286,8 @@ fn generated_apps_pass_their_own_tests() {
     succeeds(oxide(&blog, &["make:controller", "Comment", "--resource"]));
     succeeds(oxide(&blog, &["make:controller", "Dashboard"]));
     succeeds(oxide(&blog, &["make:request", "StoreCommentRequest"]));
+    // `values` is an SQL keyword: the migration must quote it.
+    succeeds(oxide(&blog, &["make:model", "Value", "-m"]));
     cargo_test(&blog, &[]);
 
     cargo_test(&new_app(&dir, "blank-app", &["--starter", "blank"]), &[]);

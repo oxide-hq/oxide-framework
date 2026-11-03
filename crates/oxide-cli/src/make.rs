@@ -313,7 +313,7 @@ pub fn with_module_lines(source: &str, mod_line: &str, use_line: Option<&str>) -
 
     if !has(&lines, mod_line) {
         if let Some(last) = lines.iter().rposition(|line| line.starts_with("pub mod ")) {
-            lines.insert(last + 1, mod_line.to_owned());
+            lines.insert(item_end(&lines, last) + 1, mod_line.to_owned());
         } else {
             // Module docs and inner attributes (`#![allow(..)]`) must stay ahead of any item.
             let docs = lines
@@ -332,7 +332,7 @@ pub fn with_module_lines(source: &str, mod_line: &str, use_line: Option<&str>) -
     }
     if let Some(use_line) = use_line.filter(|line| !has(&lines, line)) {
         if let Some(last) = lines.iter().rposition(|line| line.starts_with("pub use ")) {
-            lines.insert(last + 1, use_line.to_owned());
+            lines.insert(item_end(&lines, last) + 1, use_line.to_owned());
         } else {
             if lines.last().is_some_and(|line| !line.is_empty()) {
                 lines.push(String::new());
@@ -343,6 +343,15 @@ pub fn with_module_lines(source: &str, mod_line: &str, use_line: Option<&str>) -
     let mut out = lines.join("\n");
     out.push('\n');
     out
+}
+
+/// The last line of the item starting at `start`, which may span lines like
+/// `pub use post::{\n    NewPost,\n    Post,\n};` or an inline `pub mod x { .. }`.
+fn item_end(lines: &[String], start: usize) -> usize {
+    lines[start..]
+        .iter()
+        .position(|line| line.trim_end().ends_with(';') || line.starts_with('}'))
+        .map_or(start, |offset| start + offset)
 }
 
 #[cfg(test)]
@@ -365,6 +374,16 @@ mod tests {
         assert_eq!(
             with_module_lines("", "pub mod comment;", None),
             "pub mod comment;\n"
+        );
+
+        let multiline = "pub mod post;\n\npub use post::{\n    NewPost,\n    Post,\n};\n";
+        assert_eq!(
+            with_module_lines(
+                multiline,
+                "pub mod comment;",
+                Some("pub use comment::Comment;")
+            ),
+            "pub mod post;\npub mod comment;\n\npub use post::{\n    NewPost,\n    Post,\n};\npub use comment::Comment;\n"
         );
 
         let attributes = "//! Models.\n#![allow(dead_code)]\n";
