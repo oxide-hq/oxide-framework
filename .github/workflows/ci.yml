@@ -67,7 +67,10 @@ jobs:
         with:
           persist-credentials: false
       - uses: rui314/setup-mold@v1
-      - uses: dtolnay/rust-toolchain@1.88
+      # Pass the version as an input: Dependabot reads a `@1.88` ref as a version to bump.
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.88"
       - uses: Swatinem/rust-cache@v2
       # `+1.88` overrides the stable channel pinned in rust-toolchain.toml.
       - run: cargo +1.88 check --workspace --all-targets --locked
