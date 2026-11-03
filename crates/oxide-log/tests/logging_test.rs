@@ -16,6 +16,17 @@ use oxide_log::{
 };
 use serde_json::Value;
 
+/// `Log::info` and friends are single `tracing` callsites shared by these tests, and `tracing`
+/// caches whether a callsite is enabled across all loggers installed at the time. Tests that go
+/// through them take this lock so another test's logger can't hide their events.
+static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn serial() -> std::sync::MutexGuard<'static, ()> {
+    SERIAL
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 fn config(default: &str, channels: &[(&str, ChannelConfig)]) -> LoggingConfig {
     LoggingConfig {
         default: default.to_owned(),
@@ -162,6 +173,7 @@ fn levels_filter_per_channel() {
 
 #[test]
 fn addressed_events_go_only_to_their_channel() {
+    let _serial = serial();
     let main = MemoryWriter::new();
     let audit = MemoryWriter::new();
     let config = config("stderr", &[("audit", channel(Driver::Json))]);
@@ -192,6 +204,7 @@ fn addressed_events_go_only_to_their_channel() {
 
 #[test]
 fn every_log_level_has_a_helper() {
+    let _serial = serial();
     let sink = MemoryWriter::new();
     let mut verbose = channel(Driver::Stderr);
     verbose.level = Some("trace".into());
@@ -436,6 +449,7 @@ async fn the_middleware_adds_a_request_id_to_logs_and_responses() {
 
 #[test]
 fn a_stack_can_be_addressed_by_name() {
+    let _serial = serial();
     let both = MemoryWriter::new();
     let other = MemoryWriter::new();
     let stderr = MemoryWriter::new();
@@ -472,6 +486,7 @@ fn a_stack_can_be_addressed_by_name() {
 
 #[test]
 fn logged_input_cannot_forge_lines() {
+    let _serial = serial();
     let sink = MemoryWriter::new();
     let config = config("stderr", &[]);
     let (dispatch, _guard) = Logger::builder(&config)

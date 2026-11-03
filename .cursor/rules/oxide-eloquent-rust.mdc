@@ -133,7 +133,7 @@ These are review blockers.
 | Schema | `db.migrate(&sqlx::migrate!("./database/migrations"))`; tests use `DatabasePool::connect_fresh(url)` for an isolated database |
 | Queries | `Post::query().where_published(true).where_title_contains("x").order_by_id_desc().limit(10).get(&db)` |
 | Writes | `Post::insert(&db, &NewPost { .. })`, `post.save(&db)`, `post.delete(&db)` |
-| Errors | `OxideHttpError` (400/403/404/422/500, Laravel-shaped JSON); `OrmError` converts into it |
+| Errors | `OxideHttpError` (400/403/404/422/500, Laravel-shaped JSON); `OrmError` converts into it. `OxideHttpError::server(cause)` is an opaque 500 that keeps the cause for logs; `impl DomainError` + `From<E> for OxideHttpError` gives your own error its status and client message; `Application::builder().exception_handler(h)` customises reporting and rendering |
 | Tests | `TestClient::new(router.with_state(ctx))` with chained `assert_*` |
 | New model, controller or request in an app | `oxide make:model Comment -m`, `oxide make:controller Comment --resource`, `oxide make:request StoreCommentRequest`: they write the file and register its module (then add the route yourself) |
 
