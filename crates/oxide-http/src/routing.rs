@@ -186,9 +186,11 @@ where
         } else {
             self.router.nest(trimmed, child.router)
         };
-        for mut meta in child.registry.routes {
-            meta.path = join_paths(trimmed, &meta.path);
-            self.registry.push(meta);
+        for meta in child.registry.routes {
+            // Re-derive the params so ones in `prefix` (`/tenants/{tenant}`) are path params too.
+            let path = join_paths(trimmed, &meta.path);
+            self.registry
+                .push(RouteMetadata::new(meta.method, path, meta.name));
         }
         self
     }
@@ -240,21 +242,23 @@ where
         &self.registry
     }
 
-    /// Provides the state and finalizes URL generation.
+    /// Provides the state and publishes the routes to the process-wide registry used by
+    /// [`url_for`] and [`route!`](crate::route).
     ///
-    /// The registry is attached to every request as an [`Extension`] (see [`UrlGenerator`]) and
-    /// published to the process-wide registry used by [`url_for`] and [`route!`](crate::route).
+    /// The result can still be nested or merged; [`OxideRouter::into_axum`] attaches the final
+    /// registry to requests.
     pub fn with_state<S2>(self, state: S) -> OxideRouter<S2> {
-        let registry = self.registry;
-        let shared = publish(&registry);
+        publish(&self.registry);
         OxideRouter {
-            router: self.router.layer(Extension(shared)).with_state(state),
-            registry,
+            router: self.router.with_state(state),
+            registry: self.registry,
         }
     }
 
-    /// Finalizes URL generation (as [`OxideRouter::with_state`] does) and returns the
-    /// underlying `axum::Router`.
+    /// Finalizes URL generation and returns the underlying `axum::Router`.
+    ///
+    /// The complete registry is published to the process-wide registry and attached to every
+    /// request as an [`Extension`] (see [`UrlGenerator`]).
     pub fn into_axum(self) -> axum::Router<S> {
         let shared = publish(&self.registry);
         self.router.layer(Extension(shared))

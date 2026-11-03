@@ -227,7 +227,8 @@ impl Scope {
     fn nested(&self, path: &LitStr, name: Option<&LitStr>) -> syn::Result<Self> {
         let segment = checked_path(path)?;
         Ok(Self {
-            path: join(&self.path, segment.trim_end_matches('/')),
+            // `segment` starts with `/`, so a root `prefix("/")` adds nothing.
+            path: format!("{}{}", self.path, segment.trim_end_matches('/')),
             name: format!(
                 "{}{}",
                 self.name,
@@ -246,10 +247,12 @@ impl Expander {
     fn block(&mut self, stmts: &[Stmt], scope: &Scope) -> syn::Result<TokenStream> {
         let mut calls = Vec::new();
         self.collect(stmts, scope, &mut calls)?;
+        // Mixed-site hygiene keeps a caller's own `router` binding visible in handler expressions.
+        let router = Ident::new("router", Span::mixed_site());
         Ok(quote! {{
-            let router = ::oxide_http::routing::OxideRouter::new();
-            #( let router = router #calls; )*
-            router
+            let #router = ::oxide_http::routing::OxideRouter::new();
+            #( let #router = #router #calls; )*
+            #router
         }})
     }
 

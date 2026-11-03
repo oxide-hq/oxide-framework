@@ -462,3 +462,56 @@ async fn nest_prefix_prefixes_child_route_patterns() {
         .assert_ok()
         .assert_json_path("title", "Nested post");
 }
+
+#[tokio::test]
+async fn root_prefix_and_caller_bindings_named_router() {
+    // Shares a name with the macro's internal binding; hygiene must keep it visible.
+    let router = health;
+    let app: OxideRouter<()> = routes! {
+        prefix("/") {
+            get("/root-health", router).name("root.health");
+        }
+    };
+    assert_eq!(
+        app.registry().get("root.health").unwrap().path,
+        "/root-health"
+    );
+    TestClient::new(app)
+        .get("/root-health")
+        .send()
+        .await
+        .assert_ok();
+}
+
+#[test]
+fn nest_prefix_params_are_path_params() {
+    let child = OxideRouter::<()>::new().route_named(
+        Method::GET,
+        "/posts/{post}",
+        health,
+        Some("tenants.posts.show"),
+    );
+    let router = OxideRouter::new().nest_prefix("/tenants/{tenant}", child);
+    assert_eq!(
+        router
+            .registry()
+            .url("tenants.posts.show", &[("tenant", "acme"), ("post", "1")])
+            .unwrap(),
+        "/tenants/acme/posts/1"
+    );
+}
+
+async fn own_url(urls: UrlGenerator) -> String {
+    urls.url("v2.own", &[]).unwrap()
+}
+
+#[tokio::test]
+async fn stateful_children_see_the_composed_registry() {
+    let child = OxideRouter::<AppContext>::new()
+        .route_named(Method::GET, "/own", own_url, Some("v2.own"))
+        .with_state::<()>(AppContext::default());
+    let client = TestClient::new(OxideRouter::new().nest_prefix("/v2", child));
+    let response = client.get("/v2/own").send().await;
+    response.assert_ok();
+    assert_eq!(response.text(), "/v2/own");
+}
