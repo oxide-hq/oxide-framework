@@ -33,7 +33,7 @@ pub use error::{DomainError, HandledError, OxideHttpError, OxideResult};
 pub use input::Input;
 pub use oxide_http_macros::*;
 pub use request::{Authorize, FormRequest, Validated};
-pub use request_ext::RequestExt;
+pub use request_ext::{RequestExt, negotiate};
 pub use routing::{OxideRouter, RouteMetadata, RouteRegistry, UrlGenerator, url_for};
 
 /// Re-exports used by generated code. Not public API.

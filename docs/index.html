@@ -1369,7 +1369,7 @@ kbd {
         // ...
     }
   </script>
-  <p><code>full_url</code> reports the scheme the request line carried (<code>http</code> for ordinary requests); behind a proxy, take the scheme and host from the <code>Client</code> extractor and <a href="#/middleware"><code>TrustProxies</code></a>. <code>route_name</code> and <code>route_is</code> need the router built with <code>routes!</code>.</p>
+  <p><code>full_url</code> reports the scheme the request line carried (<code>http</code> for ordinary requests); behind a proxy, take the scheme and host from the <code>Client</code> extractor and <a href="#/middleware"><code>TrustProxies</code></a>. <code>route_name</code> and <code>route_is</code> need the router built with <code>routes!</code>. <code>wants_json</code> is true for <code>*/*</code> and a missing <code>Accept</code> header (unlike Laravel), and <code>full_url</code> trusts the client's <code>Host</code> header, so never put it in a password-reset link.</p>
 </section>
 
 <section class="page" id="form-requests" data-title="Form Requests" data-group="The Basics">

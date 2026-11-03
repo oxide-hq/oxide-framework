@@ -10,6 +10,7 @@ use axum::extract::{MatchedPath, Request};
 use axum::http::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, HOST, USER_AGENT};
 use axum::http::request::Parts;
 use axum::http::{Extensions, HeaderMap, Method, Uri};
+use percent_encoding::percent_decode_str;
 
 use crate::routing::RouteRegistry;
 
@@ -45,7 +46,9 @@ pub trait RequestExt {
             .is_some_and(|media| media == "application/json" || media.ends_with("+json"))
     }
 
-    /// Whether the client's `Accept` header prefers JSON to HTML, as API clients do.
+    /// Whether the client's `Accept` header prefers JSON to HTML, as API clients do. Unlike
+    /// Laravel's `wantsJson`, `*/*` and a missing header count as JSON: Oxide is API-first, and
+    /// only a client that asks for `text/html` ahead of JSON gets pages.
     fn wants_json(&self) -> bool {
         self.prefers(&["application/json", "text/html"]) == Some("application/json")
     }
@@ -54,27 +57,22 @@ pub trait RequestExt {
     /// everything.
     fn accepts(&self, types: &[&str]) -> bool {
         let accept = self.header(ACCEPT.as_str());
-        types.iter().any(|candidate| quality(accept, candidate) > 0)
+        types
+            .iter()
+            .any(|candidate| rank(accept, candidate).is_some())
     }
 
-    /// The best of `types` for this client: highest `q`, then the order you listed them in. `None`
-    /// when none is acceptable.
+    /// The best of `types` for this client; see [`negotiate`]. `None` when none is acceptable.
     fn prefers<'a>(&self, types: &[&'a str]) -> Option<&'a str> {
-        let accept = self.header(ACCEPT.as_str());
-        let mut best: Option<(u32, &'a str)> = None;
-        for candidate in types {
-            let q = quality(accept, candidate);
-            if q > 0 && best.is_none_or(|(best_q, _)| q > best_q) {
-                best = Some((q, candidate));
-            }
-        }
-        best.map(|(_, candidate)| candidate)
+        negotiate(self.header(ACCEPT.as_str()), types)
     }
 
     /// Whether the path matches any pattern; `*` matches anything, so `admin/*` matches
-    /// `/admin/users` and `posts/*/edit` matches `/posts/5/edit`. A leading slash is optional.
+    /// `/admin/users` and `posts/*/edit` matches `/posts/5/edit`. A leading slash is optional, and
+    /// the path is compared percent-decoded, so `café/*` matches `/caf%C3%A9/menu`.
     fn path_is(&self, patterns: &[&str]) -> bool {
-        let path = self.request_uri().path().trim_matches('/');
+        let path = percent_decode_str(self.request_uri().path()).decode_utf8_lossy();
+        let path = path.trim_matches('/');
         patterns
             .iter()
             .any(|pattern| wildcard(pattern.trim_matches('/'), path))
@@ -83,6 +81,9 @@ pub trait RequestExt {
     /// The full URL as the client wrote it: the `Host` header plus path and query. The scheme
     /// is `http` unless the request line carried one; behind a proxy use the `Client` extractor
     /// from `oxide-foundation`.
+    ///
+    /// The `Host` header is chosen by the client. Don't put this URL in an email, a password
+    /// reset link or a redirect; build those from a configured application URL.
     fn full_url(&self) -> String {
         let uri = self.request_uri();
         let scheme = uri.scheme_str().unwrap_or("http");
@@ -102,10 +103,15 @@ pub trait RequestExt {
     fn route_name(&self) -> Option<&str> {
         let registry = self.request_extensions().get::<Arc<RouteRegistry>>()?;
         let matched = self.request_extensions().get::<MatchedPath>()?;
+        // Axum answers HEAD with the GET route, which is what the registry holds.
+        let method = match self.request_method() {
+            &Method::HEAD => &Method::GET,
+            other => other,
+        };
         registry
             .routes()
             .iter()
-            .find(|route| route.path == matched.as_str() && route.method == *self.request_method())?
+            .find(|route| route.path == matched.as_str() && route.method == *method)?
             .name
             .as_deref()
     }
@@ -184,18 +190,40 @@ fn wildcard(pattern: &str, text: &str) -> bool {
     remaining.ends_with(last)
 }
 
-/// The quality (thousandths) the `Accept` header gives `candidate`: the most specific matching
-/// range wins. No header means everything is acceptable.
-fn quality(accept: Option<&str>, candidate: &str) -> u32 {
+/// The best of `types` for an `Accept` header value: the highest `q`, then the one the client
+/// listed first, then the order of `types`. A missing header accepts everything, so `types[0]`
+/// wins; `None` when nothing is acceptable. A `+json` range (`application/vnd.api+json`) counts
+/// as `application/json`.
+pub fn negotiate<'a>(accept: Option<&str>, types: &[&'a str]) -> Option<&'a str> {
+    let mut best: Option<((u32, usize), &'a str)> = None;
+    for candidate in types {
+        let Some((quality, position)) = rank(accept, candidate) else {
+            continue;
+        };
+        // Higher quality first, then the earlier range in the header.
+        let better = best.is_none_or(|((best_quality, best_position), _)| {
+            quality > best_quality || (quality == best_quality && position < best_position)
+        });
+        if better {
+            best = Some(((quality, position), candidate));
+        }
+    }
+    best.map(|(_, candidate)| candidate)
+}
+
+/// The `(quality in thousandths, position of the range in the header)` the `Accept` header gives
+/// `candidate`, from its most specific matching range; `None` when refused (`q=0`) or unmatched.
+/// No header means everything is acceptable.
+fn rank(accept: Option<&str>, candidate: &str) -> Option<(u32, usize)> {
     let Some(accept) = accept else {
-        return 1000;
+        return Some((1000, 0));
     };
     let candidate = candidate.to_ascii_lowercase();
     let (kind, _) = candidate
         .split_once('/')
         .unwrap_or((candidate.as_str(), ""));
-    let mut best: Option<(u8, u32)> = None; // (specificity, quality)
-    for range in accept.split(',') {
+    let mut best: Option<(u8, u32, usize)> = None; // (specificity, quality, position)
+    for (position, range) in accept.split(',').enumerate() {
         let mut parts = range.split(';');
         let media = parts.next().unwrap_or_default().trim().to_ascii_lowercase();
         let q = parts
@@ -208,7 +236,9 @@ fn quality(accept: Option<&str>, candidate: &str) -> u32 {
                     .ok()
             })
             .map_or(1000, thousandths);
-        let specificity = if media == candidate {
+        let specificity = if media == candidate
+            || (candidate == "application/json" && media.ends_with("+json"))
+        {
             3
         } else if media.strip_suffix("/*") == Some(kind) {
             2
@@ -217,11 +247,12 @@ fn quality(accept: Option<&str>, candidate: &str) -> u32 {
         } else {
             continue;
         };
-        if best.is_none_or(|(best_specificity, _)| specificity > best_specificity) {
-            best = Some((specificity, q));
+        if best.is_none_or(|(best_specificity, ..)| specificity > best_specificity) {
+            best = Some((specificity, q, position));
         }
     }
-    best.map_or(0, |(_, q)| q)
+    best.filter(|&(_, q, _)| q > 0)
+        .map(|(_, q, position)| (q, position))
 }
 
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // clamped to 0..=1000
@@ -285,6 +316,19 @@ mod tests {
         assert!(!specific.accepts(&["text/html"]));
         assert!(specific.accepts(&["text/plain", "image/png"]));
 
+        // Equal quality: the client's own order decides, then yours.
+        let ordered = parts(&[("accept", "text/html, application/json")], "/");
+        assert_eq!(
+            ordered.prefers(&["application/json", "text/html"]),
+            Some("text/html")
+        );
+        let wildcard_only = parts(&[("accept", "*/*")], "/");
+        assert_eq!(
+            wildcard_only.prefers(&["application/json", "text/html"]),
+            Some("application/json")
+        );
+        assert!(parts(&[("accept", "application/vnd.api+json")], "/").wants_json());
+
         // No header accepts everything; the first listed type wins a tie.
         let none = parts(&[], "/");
         assert!(none.accepts(&["anything/else"]));
@@ -329,6 +373,9 @@ mod tests {
             parts(&[("authorization", "bearer t")], "/").bearer_token(),
             Some("t")
         );
+        let encoded = parts(&[], "/caf%C3%A9/a%20b");
+        assert!(encoded.path_is(&["café/*"]) && encoded.path_is(&["café/a b"]));
+        assert!(!encoded.path_is(&["cafe/*"]));
         assert!(!parts(&[("content-type", "text/plain")], "/").is_json());
         assert!(parts(&[("content-type", "application/vnd.api+json")], "/").is_json());
         assert_eq!(parts(&[], "http://x.test/a").full_url(), "http://x.test/a");
