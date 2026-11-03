@@ -32,7 +32,8 @@ pub mod upload;
 
 pub use binding::{Bind, RouteBindable};
 pub use constraints::{
-    where_alpha, where_alpha_numeric, where_fn, where_in, where_number, where_uuid,
+    DomainParams, domain, where_alpha, where_alpha_numeric, where_fn, where_in, where_number,
+    where_uuid,
 };
 pub use container::{ServiceContainer, facade_middleware};
 pub use error::{DomainError, HandledError, OxideHttpError, OxideResult};
@@ -58,7 +59,8 @@ pub mod __private {
 pub mod prelude {
     pub use crate::binding::{Bind, RouteBindable};
     pub use crate::constraints::{
-        where_alpha, where_alpha_numeric, where_fn, where_in, where_number, where_uuid,
+        DomainParams, domain, where_alpha, where_alpha_numeric, where_fn, where_in, where_number,
+        where_uuid,
     };
     pub use crate::container::{ServiceContainer, facade_middleware};
     pub use crate::error::{DomainError, OxideHttpError, OxideResult};

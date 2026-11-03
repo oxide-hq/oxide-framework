@@ -929,6 +929,12 @@ kbd {
     api_resource("/photos", Photos, names = "gallery", only = [index, show]);   // gallery.index, gallery.show
     resource("/posts/{post}/comments", Comments);                              // posts.comments.index ...
   </script>
+  <h2>Domain routing</h2>
+  <p><code>domain("{account}.example.com")</code> lets only matching hosts through (404 otherwise) and captures labels into <code>DomainParams</code>. The port is ignored. Behind a proxy, put <a href="#/middleware"><code>TrustProxies</code></a> first so the host is the public one.</p>
+  <script type="text/plain" class="code" data-lang="rust">
+    routes! { middleware(domain("{account}.example.com")) { get("/dashboard", dashboard); } }
+    async fn dashboard(domain: DomainParams) -&gt; String { domain.get("account").unwrap_or("none").to_owned() }
+  </script>
 </section>
 
 <section class="page" id="middleware" data-title="Middleware" data-group="The Basics">

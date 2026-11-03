@@ -51,3 +51,30 @@ async fn invalid_parameters_are_not_found() {
         assert_eq!(response.status().as_u16(), status, "{path}");
     }
 }
+
+async fn who(params: DomainParams) -> String {
+    params.get("account").unwrap_or("none").to_owned()
+}
+
+#[tokio::test]
+async fn domain_routes_capture_the_subdomain() {
+    let router: OxideRouter<()> = routes! {
+        middleware(domain("{account}.example.com")) {
+            get("/dashboard", who);
+        }
+    };
+    let client = TestClient::new(axum::Router::from(router));
+    let hit = client
+        .get("/dashboard")
+        .header("host", "acme.example.com")
+        .send()
+        .await;
+    assert_eq!(hit.status().as_u16(), 200);
+    assert_eq!(hit.text(), "acme");
+    let miss = client
+        .get("/dashboard")
+        .header("host", "evil.test")
+        .send()
+        .await;
+    assert_eq!(miss.status().as_u16(), 404);
+}
