@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::cli::{MakeControllerArgs, MakeModelArgs, MakeRequestArgs};
+use crate::cli::{MakeControllerArgs, MakeMiddlewareArgs, MakeModelArgs, MakeRequestArgs};
 use crate::error::CliError;
 use crate::names;
 use crate::templates::{self, render};
@@ -77,6 +77,14 @@ pub fn run_model(args: &MakeModelArgs) -> Result<(), CliError> {
 pub fn run_controller(args: &MakeControllerArgs) -> Result<(), CliError> {
     let project = Project::discover(&current_dir()?)?;
     let created = make_controller(&project, &args.name, args.resource, args.force)?;
+    report(&created);
+    Ok(())
+}
+
+/// `oxide make:middleware` in the current directory.
+pub fn run_middleware(args: &MakeMiddlewareArgs) -> Result<(), CliError> {
+    let project = Project::discover(&current_dir()?)?;
+    let created = make_middleware(&project, &args.name, args.force)?;
     report(&created);
     Ok(())
 }
@@ -219,6 +227,53 @@ pub fn make_controller(
     )?;
     Ok(vec![Created {
         kind: "Controller",
+        path,
+    }])
+}
+
+/// Creates `src/http/middleware/<name>.rs` and registers it, creating the `middleware` module
+/// first in apps generated before the command existed.
+pub fn make_middleware(
+    project: &Project,
+    name: &str,
+    force: bool,
+) -> Result<Vec<Created>, CliError> {
+    let middleware = names::type_name(name)?;
+    let module = names::module_name(&middleware)?;
+    let base = middleware
+        .strip_suffix("Middleware")
+        .filter(|base| !base.is_empty())
+        .unwrap_or(&middleware);
+    let alias = names::snake(base);
+    let path = PathBuf::from(format!("src/http/middleware/{module}.rs"));
+    write_new(
+        project,
+        &path,
+        &render(
+            templates::MIDDLEWARE,
+            &[
+                ("middleware", middleware.as_str()),
+                ("alias", alias.as_str()),
+            ],
+        ),
+        force,
+    )?;
+    let mod_file = project.root.join("src/http/middleware/mod.rs");
+    if !mod_file.exists() {
+        fs::write(
+            &mod_file,
+            "//! Middleware. Generate one with `oxide make:middleware`.\n",
+        )
+        .map_err(CliError::io(&mod_file))?;
+    }
+    register_module(
+        &project.root.join("src/http/mod.rs"),
+        "pub mod middleware;",
+        None,
+    )?;
+    register_module(&mod_file, &format!("pub mod {module};"), None)?;
+    Ok(vec![Created {
+        kind: "Middleware",
         path,
     }])
 }

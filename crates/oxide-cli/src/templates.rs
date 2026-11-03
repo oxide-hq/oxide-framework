@@ -42,6 +42,7 @@ templates! {
     CONTROLLER => "make/controller.rs.tpl",
     RESOURCE_CONTROLLER => "make/resource_controller.rs.tpl",
     REQUEST => "make/request.rs.tpl",
+    MIDDLEWARE => "make/middleware.rs.tpl",
 }
 
 /// The Oxide Eloquent Rust skill, as maintained for the framework repository.
@@ -134,6 +135,8 @@ mod tests {
             "controller",
             "resource",
             "request",
+            "middleware",
+            "alias",
         ];
         for (path, template) in ALL {
             let mut rest = *template;

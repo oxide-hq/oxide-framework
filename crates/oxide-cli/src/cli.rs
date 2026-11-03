@@ -23,6 +23,9 @@ pub enum Command {
     /// Create a new form request.
     #[command(name = "make:request")]
     MakeRequest(MakeRequestArgs),
+    /// Create a new middleware
+    #[command(name = "make:middleware")]
+    MakeMiddleware(MakeMiddlewareArgs),
 }
 
 // Flags map one-to-one onto command-line switches.
@@ -106,6 +109,15 @@ pub struct MakeControllerArgs {
     /// Generate the five resource actions (`index`, `store`, `show`, `update`, `destroy`).
     #[arg(short, long)]
     pub resource: bool,
+    /// Overwrite the file if it exists.
+    #[arg(long)]
+    pub force: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct MakeMiddlewareArgs {
+    /// The middleware name, e.g. `EnsureRole`.
+    pub name: String,
     /// Overwrite the file if it exists.
     #[arg(long)]
     pub force: bool,

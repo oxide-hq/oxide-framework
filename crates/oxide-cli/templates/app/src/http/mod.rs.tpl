@@ -1,4 +1,5 @@
-//! The HTTP layer: controllers and form requests.
+//! The HTTP layer: controllers, middleware and form requests.
 
 pub mod controllers;
+pub mod middleware;
 pub mod requests;

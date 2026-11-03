@@ -30,6 +30,7 @@ Then open <http://127.0.0.1:3000/api/v1/health>.
 oxide make:model Comment --migration
 oxide make:controller Comment --resource
 oxide make:request StoreCommentRequest
+oxide make:middleware EnsureRole
 ```
 
 Each command creates the file and registers it in the parent `mod.rs`.
