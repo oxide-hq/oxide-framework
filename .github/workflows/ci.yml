@@ -67,7 +67,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: rui314/setup-mold@v1
-      - uses: dtolnay/rust-toolchain@1.88
+      - uses: dtolnay/rust-toolchain@1.120
       - uses: Swatinem/rust-cache@v2
       # `+1.88` overrides the stable channel pinned in rust-toolchain.toml.
       - run: cargo +1.88 check --workspace --all-targets --locked
