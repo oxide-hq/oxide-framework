@@ -76,6 +76,55 @@ jobs:
       - run: cargo test --workspace --all-features --locked
       - run: cargo doc --workspace --all-features --no-deps --locked
 
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: oxide
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      OXIDE_TEST_POSTGRES_URL: postgres://postgres:oxide@localhost:5432/postgres
+      # Keep in sync with `cov_ignore` in the justfile.
+      COV_IGNORE: (/tests/|/templates/|oxide-umbrella-test)
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: rui314/setup-mold@v1
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+      # Run the suite once, then report in each format from the same profile data.
+      - run: cargo llvm-cov --workspace --all-features --locked --no-report
+      - name: Summary
+        run: |
+          {
+            echo '### Coverage'
+            echo '```'
+            cargo llvm-cov report --ignore-filename-regex "$COV_IGNORE" --summary-only
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - run: cargo llvm-cov report --ignore-filename-regex "$COV_IGNORE" --lcov --output-path lcov.info
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lcov
+          path: lcov.info
+      # The gate: fail below 85% line coverage.
+      - run: cargo llvm-cov report --ignore-filename-regex "$COV_IGNORE" --fail-under-lines 85
+
   msrv:
     name: MSRV (1.88)
     runs-on: ubuntu-latest

@@ -160,7 +160,8 @@ With the `postgres` feature, `i64` fields need `BIGINT`/`BIGSERIAL` columns, and
   - `async fn` in a trait impl with no `.await` → return `std::future::ready(..)`;
   - `assert!(x.is_empty())` → `assert_eq!(x.len(), 0)`;
   - `.map(format!(..)).collect::<String>()` → a `write!` loop.
-- Before pushing, run `just ci` (fmt-check, clippy `-D warnings`, tests), plus
+- Before pushing, run `just ci` (fmt-check, clippy `-D warnings`, tests), `just coverage-check`
+  (workspace line coverage must stay ≥ 85%), plus
   `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps`.
 
 ## Review checklist
