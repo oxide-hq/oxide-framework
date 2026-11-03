@@ -120,7 +120,11 @@ impl ApplicationBuilder {
         for routes in self.routes {
             router = router.merge(routes);
         }
-        let router = router.layer(middleware::from_fn_with_state(container, scope_middleware));
+        // Outermost last: the request context wraps the scope, so even services built while
+        // resolving log with the request id.
+        let router = router
+            .layer(middleware::from_fn_with_state(container, scope_middleware))
+            .layer(middleware::from_fn(oxide_log::context_middleware));
         Ok(Application { app, router })
     }
 }

@@ -415,6 +415,7 @@ fn files(options: &NewOptions) -> Vec<(String, String)> {
 
     add("src/config.rs", r(templates::CONFIG_RS));
     add("config/app.toml", r(templates::CONFIG_APP));
+    add("config/logging.toml", r(templates::CONFIG_LOGGING));
     if database.is_some() {
         add("config/database.toml", r(templates::CONFIG_DATABASE));
         add("build.rs", r(templates::BUILD_RS));
@@ -546,7 +547,7 @@ database = "{database}"
 
 fn env_example(options: &NewOptions, database_url: &str) -> String {
     let mut env = format!(
-        "APP_NAME={}\nAPP_ENV=local\nAPP_DEBUG=false\nAPP_PORT=3000\n",
+        "APP_NAME={}\nAPP_ENV=local\nAPP_DEBUG=false\nAPP_PORT=3000\nLOG_LEVEL=info\n",
         options.name
     );
     if options.database.is_some() {

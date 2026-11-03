@@ -17,6 +17,7 @@ postgres-tls = ["oxide-orm/postgres-tls"]
 oxide-http.workspace = true
 oxide-config.workspace = true
 oxide-foundation.workspace = true
+oxide-log.workspace = true
 oxide-support.workspace = true
 oxide-orm.workspace = true
 axum.workspace = true

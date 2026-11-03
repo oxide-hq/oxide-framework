@@ -44,6 +44,7 @@ comparisons throughout. Its source is [`docs/index.html`](docs/index.html), depl
 | Configuration           | `#[derive(Config)]` sections from `config/*.toml`, `.env` and env vars, validated at boot |
 | Collections & helpers   | `CollectionExt` on any iterator, `Str`/`Stringable`, `Arr`, `Number`, `Pipeline`, `retry`             |
 | Providers & Application | `Application::builder().provider(..).build()`, typed container (singleton/scoped/transient, `dyn` contracts), `Inject<T>` |
+| Logging & Context       | `config/logging.toml` channels (stderr, file, daily, JSON, stacks) on `tracing`; request-id `Context` on every line |
 | Service container       | `#[derive(ServiceContainer)]` on your state, `#[derive(Service)]` on services |
 | Facades                 | `AppContext::resolve::<Mailer>()` inside `facade_middleware` (task-local)     |
 | `FormRequest`           | `#[derive(FormRequest)]` + the `Validated<T>` extractor                       |
@@ -258,6 +259,7 @@ dependencies.
 | [`oxide-config-macros`](crates/oxide-config-macros) | The `Config` derive (re-exported by `oxide-config`) |
 | [`oxide-support`](crates/oxide-support)          | Helpers: collections, strings, arrays, numbers, dates, pipelines, retry |
 | [`oxide-foundation`](crates/oxide-foundation)    | Application bootstrap: `Application`, `ServiceProvider`, typed container |
+| [`oxide-log`](crates/oxide-log)                  | Logging: channels, request `Context`, request-id middleware |
 | [`oxide-http`](crates/oxide-http)                | Extractors, error contract, service container traits, `TestClient` |
 | [`oxide-http-macros`](crates/oxide-http-macros)  | `Service`, `ServiceContainer` and `FormRequest` derives (re-exported by `oxide-http`) |
 | [`oxide-orm`](crates/oxide-orm)                  | `DatabasePool`, `Model` trait, typed queries, migrations, `OrmError` (sqlx: SQLite, PostgreSQL) |

@@ -110,6 +110,7 @@ fn new_scaffolds_the_api_blog_application() {
             "src/context.rs",
             "src/config.rs",
             "config/app.toml",
+            "config/logging.toml",
             "config/database.toml",
             "src/models/post.rs",
             "src/http/controllers/post_controller.rs",

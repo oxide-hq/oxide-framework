@@ -20,6 +20,7 @@ templates! {
     LIB_MINIMAL => "app/src/lib_minimal.rs.tpl",
     CONFIG_RS => "app/src/config.rs.tpl",
     CONFIG_APP => "app/config/app.toml.tpl",
+    CONFIG_LOGGING => "app/config/logging.toml.tpl",
     CONFIG_DATABASE => "app/config/database.toml.tpl",
     CONTEXT => "app/src/context.rs.tpl",
     CONTEXT_MINIMAL => "app/src/context_minimal.rs.tpl",
