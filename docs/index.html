@@ -1372,6 +1372,31 @@ kbd {
   <p><code>full_url</code> reports the scheme the request line carried (<code>http</code> for ordinary requests); behind a proxy, take the scheme and host from the <code>Client</code> extractor and <a href="#/middleware"><code>TrustProxies</code></a>. <code>route_name</code> and <code>route_is</code> need the router built with <code>routes!</code>. <code>wants_json</code> is true for <code>*/*</code> and a missing <code>Accept</code> header (unlike Laravel), and <code>full_url</code> trusts the client's <code>Host</code> header, so never put it in a password-reset link.</p>
 </section>
 
+<section class="page" id="responses" data-title="Responses" data-group="The Basics">
+  <h1>Responses</h1>
+  <p>Builders for the responses Laravel's <code>response()</code> and <code>redirect()</code> helpers give you, in <code>oxide_http::response</code>.</p>
+  <script type="text/plain" class="code" data-lang="rust">
+    use oxide_http::prelude::*;
+    use oxide_http::response::{self, redirect};
+
+    response::json(json!({ "ok": true })).with_status(StatusCode::CREATED);
+    response::no_content();
+    response::download("storage/report.csv", "report.csv").await?;   // attachment
+    response::file("public/logo.png").await?;                         // inline
+    response::stream(chunks);                                         // chunked body
+    // Server-sent events: Sse, Event and KeepAlive are re-exported.
+
+    redirect::to("/home");                       // local paths only; others become "/"
+    redirect::route(&urls, "posts.show", &[("post", "7")])?;
+    redirect::back(&parts, "/");                 // same-host Referer, else the fallback
+    redirect::away("https://example.com");       // any URL: never pass user input
+
+    response.with_header(header::ETAG, "abc")
+            .with_cookie(Cookie::new("seen", "1").http_only().max_age(3600));
+  </script>
+  <p>Add your own response macros as an extension trait on <code>Response</code>. Implement <code>Responsable</code> for a domain type that renders itself differently per request (JSON for API clients, a redirect for browsers) and call <code>respond(value, &amp;parts)</code>. Cookies here are plain; signed and encrypted cookies arrive with sessions.</p>
+</section>
+
 <section class="page" id="form-requests" data-title="Form Requests" data-group="The Basics">
   <p class="eyebrow">The Basics</p>
   <h1>Form Requests &amp; Validation</h1>

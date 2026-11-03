@@ -1287,6 +1287,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "chrono",
+ "futures-core",
  "http-body-util",
  "oxide-http-macros",
  "oxide-support",
