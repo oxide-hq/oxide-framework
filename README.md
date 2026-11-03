@@ -1,8 +1,12 @@
-# Oxide
+<p align="center">
+  <img src=".github/assets/banner.png" alt="Oxide — Laravel-grade ergonomics. Compile-time safety." width="100%">
+</p>
 
-[![CI](https://github.com/oxide-hq/oxide-framework/actions/workflows/ci.yml/badge.svg)](https://github.com/oxide-hq/oxide-framework/actions/workflows/ci.yml)
-[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
-[![MSRV 1.88](https://img.shields.io/badge/MSRV-1.88-orange.svg)](rust-toolchain.toml)
+<p align="center">
+  <a href="https://github.com/oxide-hq/oxide-framework/actions/workflows/ci.yml"><img src="https://github.com/oxide-hq/oxide-framework/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="#license"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="License: MIT OR Apache-2.0"></a>
+  <a href="rust-toolchain.toml"><img src="https://img.shields.io/badge/MSRV-1.88-orange.svg" alt="MSRV 1.88"></a>
+</p>
 
 **Oxide** is a Laravel-inspired web framework for Rust. It aims to give you Laravel's developer
 ergonomics — a service container, form requests, route-model binding, a fluent test client — while

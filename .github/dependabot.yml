@@ -1,0 +1,33 @@
+# Dependabot version updates — https://docs.github.com/code-security/dependabot
+version: 2
+
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 10
+    labels: [dependencies, rust]
+    commit-message:
+      prefix: "deps"
+    groups:
+      # One PR for all semver-compatible bumps; majors (0.x minors included) stay separate.
+      cargo-compatible:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    labels: [dependencies, github-actions]
+    commit-message:
+      prefix: "ci"
+    groups:
+      github-actions:
+        patterns: ["*"]
