@@ -1286,8 +1286,11 @@ name = "oxide-http"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "chrono",
  "http-body-util",
  "oxide-http-macros",
+ "oxide-support",
+ "percent-encoding",
  "serde",
  "serde_json",
  "serde_urlencoded",

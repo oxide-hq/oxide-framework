@@ -21,15 +21,19 @@ extern crate self as oxide_http;
 pub mod binding;
 pub mod container;
 pub mod error;
+pub mod input;
 pub mod request;
+pub mod request_ext;
 pub mod routing;
 pub mod testing;
 
 pub use binding::{Bind, RouteBindable};
 pub use container::{ServiceContainer, facade_middleware};
 pub use error::{DomainError, HandledError, OxideHttpError, OxideResult};
+pub use input::Input;
 pub use oxide_http_macros::*;
 pub use request::{Authorize, FormRequest, Validated};
+pub use request_ext::{RequestExt, negotiate};
 pub use routing::{OxideRouter, RouteMetadata, RouteRegistry, UrlGenerator, url_for};
 
 /// Re-exports used by generated code. Not public API.
@@ -45,7 +49,9 @@ pub mod prelude {
     pub use crate::binding::{Bind, RouteBindable};
     pub use crate::container::{ServiceContainer, facade_middleware};
     pub use crate::error::{DomainError, OxideHttpError, OxideResult};
+    pub use crate::input::Input;
     pub use crate::request::{Authorize, FormRequest, Validated};
+    pub use crate::request_ext::RequestExt;
     pub use crate::route;
     pub use crate::routing::{OxideRouter, UrlGenerator, url_for};
     pub use crate::testing::{TestClient, TestResponse};

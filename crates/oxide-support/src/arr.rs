@@ -133,10 +133,26 @@ impl Arr {
     }
 }
 
+/// How many nulls `set` pads an array with to reach a higher index.
+const MAX_PADDING: usize = 1024;
+
 /// Moves into `segment` of `current`, replacing anything that isn't the right kind of container
-/// (a scalar, or an array reached by a non-numeric key) with an object.
+/// (a scalar, or an array reached by a non-numeric key) with an object. An index far past the
+/// end of an array (more than [`MAX_PADDING`] slots) turns it into an object keyed by index
+/// instead of padding it with nulls, so a hostile `a[4294967295]` can't allocate gigabytes.
 fn step_into<'a>(current: &'a mut Value, segment: &str) -> &'a mut Value {
     let index = segment.parse::<usize>().ok();
+    if let (Value::Array(items), Some(index)) = (&mut *current, index)
+        && index > items.len() + MAX_PADDING
+    {
+        *current = Value::Object(
+            items
+                .drain(..)
+                .enumerate()
+                .map(|(at, item)| (at.to_string(), item))
+                .collect(),
+        );
+    }
     let indexes_array = current.is_array() && index.is_some();
     if !indexes_array && !current.is_object() {
         *current = Value::Object(Map::new());
@@ -209,6 +225,16 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn a_far_index_does_not_pad_an_array() {
+        let mut data = json!({ "tags": ["a"] });
+        Arr::set(&mut data, "tags.4294967295", json!("x"));
+        assert_eq!(data, json!({ "tags": { "0": "a", "4294967295": "x" } }));
+        let mut next = json!(["a"]);
+        Arr::set(&mut next, "1", json!("b"));
+        assert_eq!(next, json!(["a", "b"]));
+    }
 
     #[test]
     fn get_and_has_walk_objects_and_arrays() {

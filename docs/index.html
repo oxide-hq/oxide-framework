@@ -1316,6 +1316,62 @@ kbd {
   <p>A package ships a provider, and its users add it with <code>.provider(..)</code>. The provider binds the package's defaults (which the application can override with <code>.bind(..)</code>), reads its settings through <code>app.config::&lt;Section&gt;()</code> and contributes routes. Copying a package's config and migration stubs into the application arrives with the console commands.</p>
 </section>
 
+<section class="page" id="requests" data-title="Requests" data-group="The Basics">
+  <p class="eyebrow">The Basics</p>
+  <h1>Requests</h1>
+  <p class="lead">Reading what the client sent: the merged query string and body through <code>Input</code>, and questions about the request itself (content negotiation, tokens, the URL, the matched route) through <code>RequestExt</code>. For typed, validated payloads reach for a <a href="#/form-requests">form request</a> instead.</p>
+
+  <h2>Input</h2>
+  <div class="compare">
+    <script type="text/plain" data-lang="php">
+      $name  = $request->input('user.name', 'Guest');
+      $page  = $request->integer('page', 1);
+      $admin = $request->boolean('admin');
+      $when  = $request->date('starts_at');
+      $data  = $request->only(['title', 'body']);
+    </script>
+    <script type="text/plain" data-lang="rust">
+      let name  = input.string("user.name").unwrap_or_else(|| "Guest".into());
+      let page  = input.integer("page").unwrap_or(1);
+      let admin = input.boolean("admin");
+      let when  = input.date("starts_at");
+      let data  = input.only(&["title", "body"]);
+    </script>
+  </div>
+  <p><code>Input</code> is an extractor (<code>async fn index(input: Input)</code>) holding the query string and the body, JSON or form. The body wins when both have a key, as in Laravel. Keys are dot paths (<code>user.name</code>, <code>items.0.id</code>), and forms may use PHP-style keys: <code>user[name]=Ann</code> nests and <code>tags[]=a&amp;tags[]=b</code> makes a list.</p>
+  <table>
+    <thead><tr><th>Method</th><th>Returns</th></tr></thead>
+    <tbody>
+      <tr><td><code>all()</code>, <code>input(key)</code>, <code>query(key)</code></td><td>Everything merged; one value (body, then query); one query value.</td></tr>
+      <tr><td><code>has</code>, <code>has_all</code>, <code>has_any</code>, <code>missing</code>, <code>filled</code></td><td>Presence checks. <code>filled</code> is false for <code>null</code> and blank strings.</td></tr>
+      <tr><td><code>string</code>, <code>integer</code>, <code>float</code></td><td>Coerced from strings or numbers (<code>"42"</code> is 42); <code>None</code> when it doesn't fit.</td></tr>
+      <tr><td><code>boolean</code>, <code>try_boolean</code></td><td><code>true</code>/<code>1</code>/<code>on</code>/<code>yes</code> and their opposites; <code>boolean</code> answers <code>false</code> for anything else, <code>try_boolean</code> says <code>None</code>.</td></tr>
+      <tr><td><code>date</code></td><td>A UTC date-time from RFC 3339, <code>YYYY-MM-DD HH:MM:SS</code> or <code>YYYY-MM-DD</code>.</td></tr>
+      <tr><td><code>get::&lt;T&gt;(key)</code></td><td>Any <code>Deserialize</code> type, such as an enum (Laravel's <code>enum()</code>).</td></tr>
+      <tr><td><code>only</code>, <code>except</code></td><td>An object with or without the listed top-level keys.</td></tr>
+    </tbody>
+  </table>
+  <p>A malformed JSON body answers <code>400 Malformed JSON: ..</code> and one over the body limit answers <code>413</code>. <code>Input</code> reads the whole body, so use it instead of another body extractor, not next to one.</p>
+
+  <h2>The request itself</h2>
+  <p><code>RequestExt</code> adds Laravel's request questions to <code>Parts</code> (extract it in a handler as <code>parts: Parts</code>) and to a whole <code>Request</code> in middleware:</p>
+  <script type="text/plain" data-lang="rust">
+    async fn show(parts: Parts) -> Response {
+        if parts.wants_json() { /* API client */ }
+        parts.bearer_token();                     // Some("abc") from "Authorization: Bearer abc"
+        parts.prefers(&["application/json", "text/html"]);   // the best by q-values, else your order
+        parts.accepts(&["image/png"]);
+        parts.path_is(&["admin/*", "posts/*/edit"]);
+        parts.route_is(&["posts.*"]);             // by route name, e.g. posts.show
+        parts.full_url();                         // http://app.test/posts/7?page=2
+        parts.header("x-tenant");
+        parts.user_agent();
+        // ...
+    }
+  </script>
+  <p><code>full_url</code> reports the scheme the request line carried (<code>http</code> for ordinary requests); behind a proxy, take the scheme and host from the <code>Client</code> extractor and <a href="#/middleware"><code>TrustProxies</code></a>. <code>route_name</code> and <code>route_is</code> need the router built with <code>routes!</code>. <code>wants_json</code> is true for <code>*/*</code> and a missing <code>Accept</code> header (unlike Laravel), and <code>full_url</code> trusts the client's <code>Host</code> header, so never put it in a password-reset link.</p>
+</section>
+
 <section class="page" id="form-requests" data-title="Form Requests" data-group="The Basics">
   <p class="eyebrow">The Basics</p>
   <h1>Form Requests &amp; Validation</h1>

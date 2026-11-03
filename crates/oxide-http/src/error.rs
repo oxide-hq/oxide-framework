@@ -106,6 +106,32 @@ impl OxideHttpError {
         }
     }
 
+    /// An error with any status and a client message, for statuses the other variants don't
+    /// cover (`413`, `429`, ...). Statuses below 500 aren't reported as failures.
+    pub fn with_status(status: StatusCode, message: impl Into<String>) -> Self {
+        #[derive(Debug, thiserror::Error)]
+        #[error("{message}")]
+        struct Status {
+            status: StatusCode,
+            message: String,
+        }
+
+        impl DomainError for Status {
+            fn status(&self) -> StatusCode {
+                self.status
+            }
+
+            fn message(&self) -> String {
+                self.message.clone()
+            }
+        }
+
+        Self::domain(Status {
+            status,
+            message: message.into(),
+        })
+    }
+
     /// An application error as a response; see [`DomainError`].
     pub fn domain(error: impl DomainError) -> Self {
         Self::Domain(Arc::new(error))
