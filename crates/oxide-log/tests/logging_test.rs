@@ -433,3 +433,58 @@ async fn the_middleware_adds_a_request_id_to_logs_and_responses() {
     assert_ne!(response.text(), "bad id with spaces");
     assert_eq!(response.text().len(), 36);
 }
+
+#[test]
+fn a_stack_can_be_addressed_by_name() {
+    let both = MemoryWriter::new();
+    let other = MemoryWriter::new();
+    let stderr = MemoryWriter::new();
+    let mut team = channel(Driver::Stack);
+    team.channels = vec!["a".into(), "b".into()];
+    let config = config(
+        "stderr",
+        &[
+            ("team", team),
+            ("a", channel(Driver::Stderr)),
+            ("b", channel(Driver::Json)),
+            ("c", channel(Driver::Stderr)),
+        ],
+    );
+    let (dispatch, _guard) = Logger::builder(&config)
+        .writer("a", both.clone())
+        .writer("b", other.clone())
+        .writer("stderr", stderr.clone())
+        .writer("c", MemoryWriter::new())
+        .build()
+        .unwrap();
+    tracing::dispatcher::with_default(&dispatch, || {
+        Log::channel("team").info("to the whole team");
+        Log::channel("a").info("just a");
+    });
+    assert_eq!(both.lines().len(), 2, "{:?}", both.lines());
+    assert_eq!(other.lines().len(), 1, "{:?}", other.lines());
+    assert_eq!(
+        stderr.lines().len(),
+        0,
+        "the default channel doesn't see addressed events"
+    );
+}
+
+#[test]
+fn logged_input_cannot_forge_lines() {
+    let sink = MemoryWriter::new();
+    let config = config("stderr", &[]);
+    let (dispatch, _guard) = Logger::builder(&config)
+        .writer("stderr", sink.clone())
+        .build()
+        .unwrap();
+    tracing::dispatcher::with_default(&dispatch, || {
+        Log::info(
+            "login failed for x\n2026-01-01T00:00:00.000Z INFO  app: admin logged in\r\u{1b}[2J",
+        );
+    });
+    let lines = sink.lines();
+    assert_eq!(lines.len(), 1, "one event, one line: {lines:?}");
+    assert!(lines[0].contains("x\\n2026-01-01"), "{}", lines[0]);
+    assert!(lines[0].contains("\\r\\u{001b}[2J"), "{}", lines[0]);
+}

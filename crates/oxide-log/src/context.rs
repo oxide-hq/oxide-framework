@@ -87,6 +87,11 @@ impl Context {
             .unwrap_or_else(|| serde_json::json!({ "visible": {}, "hidden": {} }))
     }
 
+    /// Runs `read` on the visible values without copying them (used for every log line).
+    pub(crate) fn with_visible<R>(read: impl FnOnce(&BTreeMap<String, Value>) -> R) -> Option<R> {
+        Self::read(|data| read(&data.visible))
+    }
+
     fn with_data(change: impl FnOnce(&mut Data)) -> bool {
         CURRENT.try_with(|data| change(&mut lock(data))).is_ok()
     }

@@ -8,7 +8,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use tracing::{Dispatch, Event, Level, Metadata};
-use tracing_appender::non_blocking::WorkerGuard;
+use tracing_appender::non_blocking::{NonBlockingBuilder, WorkerGuard};
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::Registry;
 use tracing_subscriber::fmt::MakeWriter;
@@ -17,7 +17,7 @@ use tracing_subscriber::layer::{Context as LayerContext, Filter, Layer, Subscrib
 use tracing_subscriber::registry::LookupSpan;
 
 use crate::config::{ChannelConfig, Driver, LoggingConfig};
-use crate::format::{ChannelFormat, FieldVisitor, Shape};
+use crate::format::{ChannelFormat, Shape, addressed_channel};
 
 /// Why logging couldn't be set up.
 #[derive(Debug, thiserror::Error)]
@@ -110,10 +110,10 @@ impl LoggerBuilder<'_> {
                 Shape::Text
             };
             let filter = ChannelFilter {
-                name: leaf.name.clone(),
                 in_default: plan.default_leaves.contains(&leaf.name),
                 level: leaf.level,
                 known: Arc::clone(&known),
+                addressed_by: leaf.addressed_by.clone(),
             };
             layers.push(
                 tracing_subscriber::fmt::layer()
@@ -133,6 +133,9 @@ impl LoggerBuilder<'_> {
         let (dispatch, guard) = self.build()?;
         tracing::dispatcher::set_global_default(dispatch)
             .map_err(|_| LogError::AlreadyInitialized)?;
+        // Records from crates that use the `log` crate flow into the same channels. If the
+        // application already installed a `log` logger of its own, it keeps it.
+        let _ = tracing_log::LogTracer::init();
         Ok(guard)
     }
 }
@@ -144,6 +147,8 @@ struct Leaf {
     /// `None` is `off`.
     level: Option<Level>,
     days: Option<usize>,
+    /// The names that reach this channel: its own, and every stack that contains it.
+    addressed_by: HashSet<String>,
 }
 
 struct Plan {
@@ -177,12 +182,22 @@ impl Plan {
                 path: channel.path.clone(),
                 level,
                 days: channel.days,
+                addressed_by: HashSet::from([(*name).to_owned()]),
             });
         }
 
         // Every stack must name real channels and never loop, whether or not it is the default.
-        for name in channels.keys() {
-            expand(name, "the configuration", &channels, &mut Vec::new())?;
+        for (name, channel) in &channels {
+            let members = expand(name, "the configuration", &channels, &mut Vec::new())?;
+            if channel.driver == Driver::Stack {
+                // Addressing a stack by name reaches every channel in it.
+                for leaf in leaves
+                    .iter_mut()
+                    .filter(|leaf| members.contains(&leaf.name))
+                {
+                    leaf.addressed_by.insert((*name).to_owned());
+                }
+            }
         }
         let default_leaves = expand(&config.default, "`default`", &channels, &mut Vec::new())?
             .into_iter()
@@ -285,17 +300,19 @@ fn open(leaf: &Leaf, workers: &mut Vec<WorkerGuard>) -> Result<BoxMakeWriter, Lo
             .build(directory)
             .map_err(|error| io_error(error.to_string()))?
     };
-    let (writer, worker) = tracing_appender::non_blocking(appender);
+    // Lossless: if the background writer falls behind, logging waits instead of dropping lines
+    // (an audit channel must not lose entries).
+    let (writer, worker) = NonBlockingBuilder::default().lossy(false).finish(appender);
     workers.push(worker);
     Ok(BoxMakeWriter::new(writer))
 }
 
 /// Decides whether a channel records an event: by level, then by who the event is addressed to.
 struct ChannelFilter {
-    name: String,
     in_default: bool,
     level: Option<Level>,
     known: Arc<HashSet<String>>,
+    addressed_by: HashSet<String>,
 }
 
 impl<S> Filter<S> for ChannelFilter
@@ -307,9 +324,12 @@ where
     }
 
     fn event_enabled(&self, event: &Event<'_>, _cx: &LayerContext<'_, S>) -> bool {
-        match FieldVisitor::of(event).channel() {
-            // Addressed to a channel that exists: only that channel records it.
-            Some(addressed) if self.known.contains(addressed) => addressed == self.name,
+        match addressed_channel(event) {
+            // Addressed to a channel (or stack) that exists: only the channels it stands for
+            // record it.
+            Some(addressed) if self.known.contains(&addressed) => {
+                self.addressed_by.contains(&addressed)
+            }
             // Unaddressed, or addressed to nothing configured: the default channels do.
             _ => self.in_default,
         }

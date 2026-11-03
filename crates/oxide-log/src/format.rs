@@ -1,6 +1,6 @@
 //! How a log line looks: one text line, or one JSON object, always carrying the [`Context`].
 
-use std::fmt;
+use std::fmt::{self, Write as _};
 use std::io;
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -28,10 +28,6 @@ impl FieldVisitor {
         let mut visitor = Self::default();
         event.record(&mut visitor);
         visitor
-    }
-
-    pub(crate) fn channel(&self) -> Option<&str> {
-        self.fields.get(CHANNEL_FIELD).and_then(Value::as_str)
     }
 }
 
@@ -68,6 +64,51 @@ impl Visit for FieldVisitor {
     }
 }
 
+/// Reads only the `channel` an event is addressed to, without collecting its other fields.
+#[derive(Default)]
+struct ChannelVisitor {
+    channel: Option<String>,
+}
+
+impl Visit for ChannelVisitor {
+    fn record_str(&mut self, field: &Field, value: &str) {
+        if field.name() == CHANNEL_FIELD {
+            self.channel = Some(value.to_owned());
+        }
+    }
+
+    fn record_debug(&mut self, field: &Field, value: &dyn fmt::Debug) {
+        if field.name() == CHANNEL_FIELD {
+            self.channel = Some(format!("{value:?}"));
+        }
+    }
+}
+
+/// The channel `event` is addressed to, if any.
+pub(crate) fn addressed_channel(event: &Event<'_>) -> Option<String> {
+    let mut visitor = ChannelVisitor::default();
+    event.record(&mut visitor);
+    visitor.channel
+}
+
+/// A message safe for a line-based log: line breaks and control characters can't start a new
+/// line or hide text, so logged input can't forge entries.
+fn single_line(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        match ch {
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push(' '),
+            c if c.is_control() => {
+                let _ = write!(out, "\\u{{{:04x}}}", u32::from(c));
+            }
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 /// The shape of a channel's output.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Shape {
@@ -98,7 +139,6 @@ where
             })
             .unwrap_or_default();
         let channel = visitor.fields.remove(CHANNEL_FIELD);
-        let context = Context::all();
         let metadata = event.metadata();
         let timestamp = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
 
@@ -115,31 +155,44 @@ where
                 if !visitor.fields.is_empty() {
                     line.insert("fields".into(), Value::Object(visitor.fields));
                 }
-                if !context.is_empty() {
-                    line.insert(
-                        "context".into(),
-                        Value::Object(context.into_iter().collect()),
-                    );
+                if let Some(context) = Context::with_visible(|visible| {
+                    (!visible.is_empty()).then(|| {
+                        Value::Object(
+                            visible
+                                .iter()
+                                .map(|(k, v)| (k.clone(), v.clone()))
+                                .collect(),
+                        )
+                    })
+                })
+                .flatten()
+                {
+                    line.insert("context".into(), context);
                 }
                 writeln!(writer, "{}", Value::Object(line))
             }
             Shape::Text => {
                 write!(
                     writer,
-                    "{timestamp} {:<5} {}: {message}",
+                    "{timestamp} {:<5} {}: {}",
                     metadata.level(),
-                    metadata.target()
+                    metadata.target(),
+                    single_line(&message)
                 )?;
                 for (key, value) in &visitor.fields {
                     write!(writer, " {key}={}", plain(value))?;
                 }
-                if !context.is_empty() {
-                    let pairs: Vec<String> = context
+                Context::with_visible(|visible| {
+                    if visible.is_empty() {
+                        return Ok(());
+                    }
+                    let pairs: Vec<String> = visible
                         .iter()
                         .map(|(key, value)| format!("{key}={}", plain(value)))
                         .collect();
-                    write!(writer, " [{}]", pairs.join(" "))?;
-                }
+                    write!(writer, " [{}]", pairs.join(" "))
+                })
+                .unwrap_or(Ok(()))?;
                 writeln!(writer)
             }
         }

@@ -1631,7 +1631,7 @@ kbd {
       <tr><td><code>stack</code></td><td>Fans out to the channels listed in <code>channels</code>.</td></tr>
     </tbody>
   </table>
-  <p>The default channel, and the channels in its stack, receive every event. Other channels, like <code>audit</code> above, receive only events addressed to them with <code>Log::channel("audit")</code> or <code>tracing::info!(channel = "audit", ..)</code>. Each channel has its own <code>level</code> (<code>error</code>, <code>warn</code>, <code>info</code>, <code>debug</code>, <code>trace</code> or <code>off</code>). File channels write on a background thread, so logging never blocks a request.</p>
+  <p>The default channel, and the channels in its stack, receive every event. Other channels, like <code>audit</code> above, receive only events addressed to them with <code>Log::channel("audit")</code> or <code>tracing::info!(channel = "audit", ..)</code>. Each channel has its own <code>level</code> (<code>error</code>, <code>warn</code>, <code>info</code>, <code>debug</code>, <code>trace</code> or <code>off</code>). Addressing a stack by name (<code>Log::channel("stack")</code>) reaches every channel in it. File channels write on a background thread and never drop lines: if the writer ever falls behind, logging waits for it. Text lines escape line breaks in messages, so logged input can't forge entries, and records from dependencies that use the <code>log</code> crate flow into the same channels.</p>
   <p>Install the logger once, and keep the guard it returns alive; dropping it flushes the files:</p>
   <script type="text/plain" data-lang="rust" data-label="src/main.rs">
     let logging = config.require::<LoggingConfig>()?;

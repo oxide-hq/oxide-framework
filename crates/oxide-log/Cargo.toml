@@ -19,9 +19,11 @@ tokio = { workspace = true, features = ["rt"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 tracing-appender.workspace = true
+tracing-log.workspace = true
 
 [dev-dependencies]
 tokio.workspace = true
+log = "0.4"
 
 [lints]
 workspace = true
