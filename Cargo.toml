@@ -15,6 +15,8 @@ oxide-http = { path = "crates/oxide-http", version = "0.1.0" }
 oxide-http-macros = { path = "crates/oxide-http-macros", version = "0.1.0" }
 oxide-orm = { path = "crates/oxide-orm", version = "0.1.0" }
 oxide-orm-macros = { path = "crates/oxide-orm-macros", version = "0.1.0" }
+oxide-config = { path = "crates/oxide-config", version = "0.1.0" }
+oxide-config-macros = { path = "crates/oxide-config-macros", version = "0.1.0" }
 oxide = { path = "crates/oxide", version = "0.1.0" }
 
 # HTTP runtime
@@ -40,6 +42,7 @@ cliclack = "0.5"
 console = "0.16"
 heck = "0.5"
 toml = "1"
+dotenvy = "0.15"
 
 # Proc-macro tooling
 syn = { version = "3", features = ["full"] }

@@ -1,0 +1,20 @@
+[package]
+name = "oxide-config-macros"
+description = "Derive macro for Oxide's typed configuration sections (#[derive(Config)])."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn.workspace = true
+quote.workspace = true
+proc-macro2.workspace = true
+proc-macro-crate.workspace = true
+
+[lints]
+workspace = true

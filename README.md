@@ -41,6 +41,7 @@ comparisons throughout. Its source is [`docs/index.html`](docs/index.html), depl
 
 | Laravel concept         | Oxide                                                                        |
 | ----------------------- | ---------------------------------------------------------------------------- |
+| Configuration           | `#[derive(Config)]` sections from `config/*.toml`, `.env` and env vars, validated at boot |
 | Service container       | `#[derive(ServiceContainer)]` on your state, `#[derive(Service)]` on services |
 | Facades                 | `AppContext::resolve::<Mailer>()` inside `facade_middleware` (task-local)     |
 | `FormRequest`           | `#[derive(FormRequest)]` + the `Validated<T>` extractor                       |
@@ -251,6 +252,8 @@ dependencies.
 | Crate                                            | Purpose                                                          |
 | ------------------------------------------------ | ---------------------------------------------------------------- |
 | [`oxide`](crates/oxide)                          | The umbrella crate apps depend on: re-exports both layers and a combined prelude |
+| [`oxide-config`](crates/oxide-config)            | Typed configuration: `#[derive(Config)]`, `config/*.toml`, `.env`, environments |
+| [`oxide-config-macros`](crates/oxide-config-macros) | The `Config` derive (re-exported by `oxide-config`) |
 | [`oxide-http`](crates/oxide-http)                | Extractors, error contract, service container traits, `TestClient` |
 | [`oxide-http-macros`](crates/oxide-http-macros)  | `Service`, `ServiceContainer` and `FormRequest` derives (re-exported by `oxide-http`) |
 | [`oxide-orm`](crates/oxide-orm)                  | `DatabasePool`, `Model` trait, typed queries, migrations, `OrmError` (sqlx: SQLite, PostgreSQL) |

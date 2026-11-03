@@ -119,6 +119,7 @@ These are review blockers.
 
 | Need | Use |
 | ---- | --- |
+| Settings | `#[derive(Deserialize, Config)] #[config(file = "app")]` struct; `#[config(env = "APP_PORT", default = 3000, secret)]` per field; load with `Configuration::builder().section::<AppConfig>().load()`; read via the `Config<AppConfig>` extractor or `config_of::<Ctx, AppConfig>()`. Don't derive `Debug` on a section (the derive writes one that hides secrets) |
 | Inject a service into a handler | `#[derive(Clone, Service)]` on the service, `#[derive(Clone, ServiceContainer)]` on the app state, then take `mailer: Mailer` as a handler argument |
 | Facade-style access | `AppContext::resolve::<Mailer>()` inside `facade_middleware` |
 | Validate and authorize input | `#[derive(Deserialize, Validate, FormRequest)]` (+ `#[form_request(authorize)]` and `impl Authorize<S>`), extract `Validated<T>` |

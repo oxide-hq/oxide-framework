@@ -108,6 +108,9 @@ fn new_scaffolds_the_api_blog_application() {
             "src/main.rs",
             "src/lib.rs",
             "src/context.rs",
+            "src/config.rs",
+            "config/app.toml",
+            "config/database.toml",
             "src/models/post.rs",
             "src/http/controllers/post_controller.rs",
             "src/http/requests/store_post_request.rs",
@@ -125,6 +128,8 @@ fn new_scaffolds_the_api_blog_application() {
     assert!(read(&app, "tests/post_feature_test.rs").contains("use sample_app::"));
     assert!(read(&app, "src/routes/api.rs").contains(r#"resource("/posts", PostController);"#));
     assert!(read(&app, ".env.example").contains("DATABASE_URL=sqlite://"));
+    assert!(read(&app, "config/database.toml").contains("url = \"sqlite://"));
+    assert!(read(&app, "src/config.rs").contains("pub struct DatabaseConfig"));
     assert!(
         !read(&app, ".claude/skills/oxide-eloquent-rust/SKILL.md")
             .contains("Repository conventions")
@@ -148,7 +153,17 @@ fn new_honours_presets_databases_and_the_skill_flag() {
     assert!(!blank.join(".claude").exists() && !blank.join(".cursor").exists());
 
     let minimal = new_app(&dir, "tiny-app", &["--preset", "minimal"]);
-    assert_files(&minimal, &["tests/health_test.rs", "src/context.rs"]);
+    assert_files(
+        &minimal,
+        &[
+            "tests/health_test.rs",
+            "src/context.rs",
+            "src/config.rs",
+            "config/app.toml",
+        ],
+    );
+    assert!(!minimal.join("config/database.toml").exists());
+    assert!(!read(&minimal, "src/config.rs").contains("DatabaseConfig"));
     assert!(!minimal.join("database").exists() && !minimal.join("src/models").exists());
     let manifest = read(&minimal, "Cargo.toml");
     assert!(manifest.contains("database = \"none\"") && !manifest.contains("sqlx"));

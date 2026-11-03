@@ -523,7 +523,8 @@ kbd {
   <table>
     <thead><tr><th>Crate</th><th>What it gives you</th></tr></thead>
     <tbody>
-      <tr><td><code>oxide</code></td><td>The crate your app depends on. Re-exports <code>oxide::http</code> and <code>oxide::orm</code> and gathers everything into <code>oxide::prelude</code>.</td></tr>
+      <tr><td><code>oxide</code></td><td>The crate your app depends on. Re-exports <code>oxide::config</code>, <code>oxide::http</code> and <code>oxide::orm</code> and gathers everything into <code>oxide::prelude</code>.</td></tr>
+      <tr><td><code>oxide-config</code>, <code>oxide-config-macros</code></td><td>Typed configuration: <code>#[derive(Config)]</code>, <code>config/*.toml</code>, <code>.env</code> files, environments and boot-time validation.</td></tr>
       <tr><td><code>oxide-http</code></td><td>Routing, the service container, <code>FormRequest</code>, route-model binding, the error contract and <code>TestClient</code>.</td></tr>
       <tr><td><code>oxide-http-macros</code></td><td>The <code>Service</code>, <code>ServiceContainer</code> and <code>FormRequest</code> derives and the <code>routes!</code> macro.</td></tr>
       <tr><td><code>oxide-orm</code></td><td><code>DatabasePool</code>, the <code>Model</code> trait, the query builder, migrations and <code>OrmError</code>, on sqlx with SQLite or PostgreSQL.</td></tr>
@@ -640,12 +641,16 @@ kbd {
     ├── Cargo.toml                 # dependencies, plus [package.metadata.oxide] for the generators
     ├── .env.example               # APP_PORT and DATABASE_URL
     ├── build.rs                   # rebuilds when a migration changes
+    ├── config/
+    │   ├── app.toml               # name, port, debug (override with APP_NAME, APP_PORT, APP_DEBUG)
+    │   └── database.toml          # url (override with DATABASE_URL)
     ├── database/
     │   └── migrations/
     │       └── 0001_create_posts_table.sql
     ├── src/
     │   ├── main.rs                # loads .env, boots and serves
     │   ├── lib.rs                 # boot() and build_app(), shared with the tests
+    │   ├── config.rs              # typed AppConfig and DatabaseConfig, and load()
     │   ├── context.rs             # AppContext: the service container
     │   ├── models/                # #[derive(Model)] structs
     │   ├── http/
@@ -667,6 +672,7 @@ kbd {
       <tr><td><code>src/http/controllers</code></td><td><code>app/Http/Controllers</code></td><td>Controllers with the five resource actions.</td></tr>
       <tr><td><code>src/http/requests</code></td><td><code>app/Http/Requests</code></td><td>Validated request bodies.</td></tr>
       <tr><td><code>src/routes/api.rs</code></td><td><code>routes/api.php</code></td><td>The <code>routes!</code> table, under the <code>/api/v1</code> prefix.</td></tr>
+      <tr><td><code>config/</code>, <code>src/config.rs</code></td><td><code>config/*.php</code></td><td>Settings as TOML plus the typed structs that read them. See <a href="#/configuration">Configuration</a>.</td></tr>
       <tr><td><code>src/context.rs</code></td><td>the service container</td><td>Every service handlers can take as an argument, such as <code>DatabasePool</code> and the mailer.</td></tr>
       <tr><td><code>database/migrations</code></td><td><code>database/migrations</code></td><td>Numbered SQL files, applied by <code>boot()</code> on start-up and in each test.</td></tr>
       <tr><td><code>tests</code></td><td><code>tests/Feature</code></td><td>Feature tests that call the app through <code>TestClient</code>.</td></tr>
@@ -676,6 +682,81 @@ kbd {
   <div class="callout tip">
     <p>The <code>minimal</code> preset drops <code>database/</code>, <code>src/models</code> and the request and controller folders. Add them later with the <a href="#/console">generators</a> once you switch to the <code>api</code> preset.</p>
   </div>
+</section>
+
+<section class="page" id="configuration" data-title="Configuration" data-group="Prologue">
+  <p class="eyebrow">Prologue</p>
+  <h1>Configuration</h1>
+  <p class="lead">Every setting lives in one typed struct per file under <code>config/</code>. Environment variables and <code>.env</code> files override the file, and the whole lot is validated once at boot, so a typo fails at start-up with every problem listed instead of at first use.</p>
+
+  <h2>Defining a section</h2>
+  <p>Derive <code>Config</code> on a struct that also derives <code>Deserialize</code>. <code>file</code> names the TOML file, and each field can name an environment variable and a default.</p>
+  <div class="compare">
+    <script type="text/plain" data-lang="php" data-side="php">
+      // config/app.php
+      return [
+          'name' => env('APP_NAME', 'Laravel'),
+          'debug' => (bool) env('APP_DEBUG', false),
+          'port' => (int) env('APP_PORT', 3000),
+      ];
+    </script>
+    <script type="text/plain" data-lang="rust">
+      // config/app.toml holds the values; the struct says how they are read.
+      #[derive(Clone, Deserialize, Config)]
+      #[config(file = "app")]
+      pub struct AppConfig {
+          #[config(env = "APP_NAME")]
+          pub name: String,
+          #[config(env = "APP_DEBUG", default = false)]
+          pub debug: bool,
+          #[config(env = "APP_PORT", default = 3000)]
+          pub port: u16,
+      }
+    </script>
+  </div>
+  <p>A value comes from, highest first: its environment variable, the TOML file, then its <code>default</code>. Environment strings are converted to the field's type (<code>"yes"</code> for a <code>bool</code>, <code>"a,b"</code> for a <code>Vec&lt;String&gt;</code>, an empty string for an <code>Option</code>). Implement <code>EnvValue</code>, or use <code>impl_env_value_as_string!</code>, for your own enums.</p>
+
+  <h2>Loading and using it</h2>
+  <script type="text/plain" data-lang="rust" data-label="src/config.rs">
+    pub fn load() -> Result<Configuration, ConfigErrors> {
+        Configuration::builder()
+            .section::<AppConfig>()
+            .section::<DatabaseConfig>()
+            .load()
+    }
+  </script>
+  <p>Put the returned <code>Configuration</code> in your <a href="#/container">service container</a>. Handlers then take any section as an extractor, and code inside <code>facade_middleware</code> can use <code>config_of</code>, like Laravel's <code>config('app')</code>:</p>
+  <script type="text/plain" data-lang="rust">
+    async fn about(Config(app): Config<AppConfig>) -> String {
+        format!("{} ({})", app.name, if app.debug { "debug" } else { "release" })
+    }
+
+    let name = config_of::<AppContext, AppConfig>().name.clone();
+  </script>
+
+  <h2>Environments and <code>.env</code> files</h2>
+  <p><code>APP_ENV</code> selects the environment: <code>local</code> (the default), <code>testing</code>, <code>staging</code>, <code>production</code>, or a name of your own. <code>config.environment()</code> returns it, with helpers such as <code>is_production()</code>.</p>
+  <p>Oxide reads <code>.env</code> next to <code>Cargo.toml</code>. When <code>.env.&lt;APP_ENV&gt;</code> exists (say <code>.env.testing</code>), it replaces <code>.env</code> entirely, as in Laravel. The real process environment always wins over both files. Oxide never writes to the process environment, so tests can't disturb each other.</p>
+
+  <h2>Boot-time validation</h2>
+  <p>Every section is loaded and checked before the server starts, and every problem is reported at once with where it came from:</p>
+  <script type="text/plain" data-lang="text">
+    Error: invalid configuration (2 problems):
+      - [app.port] expected an integer (u16), got `abc` ($APP_PORT)
+      - [app.debug] expected a boolean (true/false, 1/0, yes/no, on/off), got `maybe` ($APP_DEBUG)
+  </script>
+  <p>Add <code>validate</code> to the section (<code>#[config(file = "mail", validate)]</code>) and also derive <code>validator::Validate</code> to check ranges and formats, reported the same way.</p>
+
+  <h2>Secrets</h2>
+  <p>Mark a field <code>#[config(secret)]</code> and <code>Debug</code> prints <code>[REDACTED]</code> instead of its value, as do error messages. <code>Config</code> writes the <code>Debug</code> impl for you, so don't derive <code>Debug</code> on a section. Keep real secrets in the environment or an untracked <code>.env</code>, never in a committed TOML file.</p>
+
+  <h2>Testing</h2>
+  <p>Build a configuration without touching the environment: <code>.vars([("APP_PORT", "8080")])</code> replaces the process environment and <code>.env</code> files, <code>.root(dir)</code> points at a directory holding <code>config/</code>, and <code>.provide(AppConfig { .. })</code> inserts a ready-made section.</p>
+  <script type="text/plain" data-lang="rust">
+    let config = Configuration::builder()
+        .provide(AppConfig { name: "Test".into(), debug: true, port: 0 })
+        .load()?;
+  </script>
 </section>
 
 <!-- ================================================================ THE BASICS -->

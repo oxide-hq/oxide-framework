@@ -311,6 +311,41 @@ pub fn scaffold(options: &NewOptions, dest: &Path) -> Result<Vec<PathBuf>, CliEr
         .collect())
 }
 
+/// The pieces of the generated app that depend on whether it has a database: the health test's
+/// context (which also applies migrations), and the `DatabaseConfig` section with its loader line.
+fn config_parts(
+    database: Option<Database>,
+    crate_name: &str,
+) -> (String, &'static str, &'static str) {
+    // With a database, apply the migrations too, so a broken one fails the test suite.
+    let health_context = if database.is_some() {
+        format!(
+            "{{\n        let db = DatabasePool::connect_fresh(&database_url()).await.unwrap();\n        \
+             db.migrate(&{crate_name}::MIGRATOR).await.unwrap();\n        \
+             AppContext::new(db, {crate_name}::config::load().unwrap())\n    }}"
+        )
+    } else {
+        format!("AppContext::new({crate_name}::config::load().unwrap())")
+    };
+    let (database_config, database_section) = if database.is_some() {
+        (
+            concat!(
+                "\n/// `config/database.toml`. The URL may hold a password, so `Debug` hides it.\n",
+                "#[derive(Clone, Deserialize, Config)]\n",
+                "#[config(file = \"database\")]\n",
+                "pub struct DatabaseConfig {\n",
+                "    #[config(env = \"DATABASE_URL\", secret)]\n",
+                "    pub url: String,\n",
+                "}\n",
+            ),
+            "\n        .section::<DatabaseConfig>()",
+        )
+    } else {
+        ("", "")
+    };
+    (health_context, database_config, database_section)
+}
+
 /// Every file of the new application, as `(relative path, contents)`.
 fn files(options: &NewOptions) -> Vec<(String, String)> {
     let crate_name = options.crate_name();
@@ -350,15 +385,7 @@ fn files(options: &NewOptions) -> Vec<(String, String)> {
         ),
         None => ("", ""),
     };
-    // With a database, apply the migrations too, so a broken one fails the test suite.
-    let health_context = if database.is_some() {
-        format!(
-            "{{\n        let db = DatabasePool::connect_fresh(&database_url()).await.unwrap();\n        \
-             db.migrate(&{crate_name}::MIGRATOR).await.unwrap();\n        AppContext::new(db)\n    }}"
-        )
-    } else {
-        "AppContext::default()".to_owned()
-    };
+    let (health_context, database_config, database_section) = config_parts(database, &crate_name);
     let vars = [
         ("name", options.name.as_str()),
         ("crate_name", crate_name.as_str()),
@@ -366,6 +393,8 @@ fn files(options: &NewOptions) -> Vec<(String, String)> {
         ("mailer", templates::MAILER.trim_end()),
         ("database_url_fn", database_url_fn),
         ("health_context", health_context.as_str()),
+        ("database_config", database_config),
+        ("database_section", database_section),
         ("database_notes", database_notes),
         ("data_rows", data_rows),
     ];
@@ -384,7 +413,10 @@ fn files(options: &NewOptions) -> Vec<(String, String)> {
     ];
     let mut add = |path: &str, contents: String| files.push((path.to_owned(), contents));
 
+    add("src/config.rs", r(templates::CONFIG_RS));
+    add("config/app.toml", r(templates::CONFIG_APP));
     if database.is_some() {
+        add("config/database.toml", r(templates::CONFIG_DATABASE));
         add("build.rs", r(templates::BUILD_RS));
         add("src/main.rs", r(templates::MAIN));
         add("src/lib.rs", r(templates::LIB));
@@ -513,7 +545,10 @@ database = "{database}"
 }
 
 fn env_example(options: &NewOptions, database_url: &str) -> String {
-    let mut env = format!("APP_NAME={}\nAPP_PORT=3000\n", options.name);
+    let mut env = format!(
+        "APP_NAME={}\nAPP_ENV=local\nAPP_DEBUG=false\nAPP_PORT=3000\n",
+        options.name
+    );
     if options.database.is_some() {
         let _ = writeln!(env, "DATABASE_URL={database_url}");
     }

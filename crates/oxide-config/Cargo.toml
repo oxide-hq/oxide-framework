@@ -1,0 +1,24 @@
+[package]
+name = "oxide-config"
+description = "Typed configuration for Oxide: config/*.toml, .env files and environment variables, validated at boot."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+oxide-http.workspace = true
+oxide-config-macros.workspace = true
+serde.workspace = true
+toml.workspace = true
+dotenvy.workspace = true
+validator.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true
