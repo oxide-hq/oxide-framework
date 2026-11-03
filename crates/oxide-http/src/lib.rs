@@ -27,6 +27,7 @@ pub mod request_ext;
 pub mod response;
 pub mod routing;
 pub mod testing;
+pub mod upload;
 
 pub use binding::{Bind, RouteBindable};
 pub use container::{ServiceContainer, facade_middleware};
@@ -37,6 +38,7 @@ pub use request::{Authorize, FormRequest, Validated};
 pub use request_ext::{RequestExt, negotiate};
 pub use response::{Cookie, Responsable, ResponseExt, SameSite};
 pub use routing::{OxideRouter, RouteMetadata, RouteRegistry, UrlGenerator, url_for};
+pub use upload::{FileRules, UploadedFile, Uploads};
 
 /// Re-exports used by generated code. Not public API.
 #[doc(hidden)]
@@ -58,6 +60,7 @@ pub mod prelude {
     pub use crate::route;
     pub use crate::routing::{OxideRouter, UrlGenerator, url_for};
     pub use crate::testing::{TestClient, TestResponse};
+    pub use crate::upload::{FileRules, UploadedFile, Uploads};
     pub use oxide_http_macros::{FormRequest, Service, ServiceContainer, routes};
     pub use validator::Validate;
 }

@@ -23,7 +23,7 @@ oxide-support = { path = "crates/oxide-support", version = "0.1.0" }
 oxide = { path = "crates/oxide", version = "0.1.0" }
 
 # HTTP runtime
-axum = "0.8"
+axum = { version = "0.8", features = ["multipart"] }
 tokio = { version = "1", features = ["full"] }
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"

@@ -1397,6 +1397,22 @@ kbd {
   <p>Add your own response macros as an extension trait on <code>Response</code>. Implement <code>Responsable</code> for a domain type that renders itself differently per request (JSON for API clients, a redirect for browsers) and call <code>respond(value, &amp;parts)</code>. Cookies here are plain; signed and encrypted cookies arrive with sessions.</p>
 </section>
 
+<section class="page" id="file-uploads" data-title="File Uploads" data-group="The Basics">
+  <h1>File Uploads</h1>
+  <p>The <code>Uploads</code> extractor parses <code>multipart/form-data</code> into text fields and <code>UploadedFile</code>s, like Laravel's <code>$request->file()</code>. Files are held in memory, so bound the body with <code>DefaultBodyLimit</code>.</p>
+  <script type="text/plain" class="code" data-lang="rust">
+    async fn store(uploads: Uploads) -> Result&lt;StatusCode, OxideHttpError&gt; {
+        let avatar = uploads.file("avatar").ok_or_else(|| OxideHttpError::BadRequest("avatar required".into()))?;
+        avatar.validate("avatar", &amp;FileRules::new().image().mimes(&amp;["png", "jpg"]).max_kb(2048))?;
+        let title = uploads.field("title");        // text fields
+        let photos = uploads.files("photos");      // photos[] repeats
+        avatar.name(); avatar.extension(); avatar.mime(); avatar.size(); avatar.bytes();
+        Ok(StatusCode::CREATED)
+    }
+  </script>
+  <p><code>name()</code> drops any directory part the client sent. Failed rules answer 422 like any validation error. Storing to a disk (<code>store(disk, path)</code>) arrives with the filesystem epic.</p>
+</section>
+
 <section class="page" id="form-requests" data-title="Form Requests" data-group="The Basics">
   <p class="eyebrow">The Basics</p>
   <h1>Form Requests &amp; Validation</h1>
