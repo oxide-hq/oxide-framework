@@ -1,0 +1,21 @@
+[package]
+name = "oxide-foundation"
+description = "Oxide application bootstrap: the Application builder, service providers and a typed dependency container."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+oxide-http.workspace = true
+oxide-config.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["net"] }
+
+[dev-dependencies]
+tokio.workspace = true
+serde.workspace = true
+
+[lints]
+workspace = true

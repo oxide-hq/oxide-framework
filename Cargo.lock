@@ -1201,6 +1201,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "oxide-config",
+ "oxide-foundation",
  "oxide-http",
  "oxide-orm",
  "oxide-support",
@@ -1241,6 +1242,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.9",
+]
+
+[[package]]
+name = "oxide-foundation"
+version = "0.1.0"
+dependencies = [
+ "oxide-config",
+ "oxide-http",
+ "serde",
+ "thiserror",
+ "tokio",
 ]
 
 [[package]]
