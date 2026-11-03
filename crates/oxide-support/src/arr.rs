@@ -103,7 +103,7 @@ impl Arr {
         for (path, leaf) in flat {
             Self::set(&mut value, path, leaf.clone());
         }
-        value
+        arrayify(value)
     }
 
     /// An object with only the given top-level keys.
@@ -150,6 +150,31 @@ fn step_into<'a>(current: &'a mut Value, segment: &str) -> &'a mut Value {
             &mut items[index]
         }
         Value::Object(map) => map.entry(segment.to_owned()).or_insert(Value::Null),
+        other => other,
+    }
+}
+
+/// Turns objects whose keys are exactly `0..n` into arrays, so `undot(dot(x))` gives back `x`.
+fn arrayify(value: Value) -> Value {
+    match value {
+        Value::Object(map) => {
+            let mut map: Map<String, Value> = map
+                .into_iter()
+                .map(|(key, child)| (key, arrayify(child)))
+                .collect();
+            let is_list =
+                !map.is_empty() && (0..map.len()).all(|index| map.contains_key(&index.to_string()));
+            if is_list {
+                Value::Array(
+                    (0..map.len())
+                        .filter_map(|index| map.remove(&index.to_string()))
+                        .collect(),
+                )
+            } else {
+                Value::Object(map)
+            }
+        }
+        Value::Array(items) => Value::Array(items.into_iter().map(arrayify).collect()),
         other => other,
     }
 }
@@ -252,5 +277,10 @@ mod tests {
         flat.insert("a.b".into(), json!(1));
         flat.insert("a.c".into(), json!(2));
         assert_eq!(Arr::undot(&flat), json!({ "a": { "b": 1, "c": 2 } }));
+
+        // Arrays survive a round trip, including past nine items (keys sort as "10" < "2").
+        let original =
+            json!({ "a": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], "o": { "k": [{ "x": 1 }] } });
+        assert_eq!(Arr::undot(&Arr::dot(&original)), original);
     }
 }

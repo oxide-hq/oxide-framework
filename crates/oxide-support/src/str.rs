@@ -21,6 +21,16 @@ const UNCOUNTABLE: &[&str] = &[
     "rice",
     "deer",
 ];
+/// Words whose singular ends in `ie`, so `-ies` loses only the `s`.
+const IE_WORDS: &[&str] = &[
+    "movie", "cookie", "zombie", "rookie", "genie", "pie", "tie", "calorie", "brownie", "selfie",
+    "hoodie", "smoothie", "birdie",
+];
+/// Singulars ending in `s` whose plural is `-ses`, so `-ses` loses `es` (`buses`, not `bu`).
+const SES_WORDS: &[&str] = &[
+    "bus", "status", "bonus", "virus", "alias", "campus", "focus", "census", "atlas", "canvas",
+    "gas",
+];
 const IRREGULAR: &[(&str, &str)] = &[
     ("person", "people"),
     ("man", "men"),
@@ -43,17 +53,23 @@ impl Str {
         Stringable(value.into())
     }
 
-    /// A URL slug: lowercase letters and digits joined by `-`.
+    /// Transliterates to ASCII: `Crème brûlée` → `Creme brulee`, `北京` → `Bei Jing`.
+    pub fn ascii(value: &str) -> String {
+        deunicode::deunicode(value)
+    }
+
+    /// A URL slug: lowercase ASCII letters and digits joined by `-`. Accents and other scripts
+    /// are transliterated first (see [`ascii`](Self::ascii)).
     pub fn slug(value: &str) -> String {
         let mut slug = String::new();
         let mut pending_dash = false;
-        for ch in value.chars() {
-            if ch.is_alphanumeric() {
+        for ch in Self::ascii(value).chars() {
+            if ch.is_ascii_alphanumeric() {
                 if pending_dash && !slug.is_empty() {
                     slug.push('-');
                 }
                 pending_dash = false;
-                slug.extend(ch.to_lowercase());
+                slug.push(ch.to_ascii_lowercase());
             } else {
                 pending_dash = true;
             }
@@ -93,6 +109,9 @@ impl Str {
                     out.extend(ch.to_lowercase());
                 }
                 start_of_word = false;
+            } else if ch == '\'' || ch == '’' {
+                // Contractions and possessives stay one word: "don't", not "Don'T".
+                out.push(ch);
             } else {
                 out.push(ch);
                 start_of_word = true;
@@ -119,50 +138,64 @@ impl Str {
 
     /// The English plural of a word: `post` → `posts`, `category` → `categories`.
     ///
-    /// Handles the common rules, a table of irregulars and uncountable words. Underscored or
-    /// spaced phrases pluralize their last word (`blog_post` → `blog_posts`).
+    /// Handles the common rules, a table of irregulars and uncountable words, and keeps the
+    /// word's own capitalisation (`BlogPost` → `BlogPosts`). Underscored or spaced phrases
+    /// pluralize their last word (`blog_post` → `blog_posts`). It is a heuristic for model and
+    /// table names, not a dictionary.
     pub fn plural(value: &str) -> String {
         let (head, word) = split_last_word(value);
         let lower = word.to_lowercase();
-        let plural = if UNCOUNTABLE.contains(&lower.as_str()) {
+        if UNCOUNTABLE.contains(&lower.as_str()) {
             return value.to_owned();
-        } else if let Some((_, plural)) = IRREGULAR.iter().find(|(singular, _)| *singular == lower)
-        {
-            (*plural).to_owned()
-        } else if ends_with_consonant_y(&lower) {
-            format!("{}ies", &lower[..lower.len() - 1])
-        } else if ["s", "x", "z", "ch", "sh"]
-            .iter()
-            .any(|end| lower.ends_with(end))
-        {
-            format!("{lower}es")
-        } else {
-            format!("{lower}s")
-        };
-        format!("{head}{}", match_case(word, &plural))
+        }
+        let inflected =
+            if let Some((_, plural)) = IRREGULAR.iter().find(|(singular, _)| *singular == lower) {
+                match_case(word, plural)
+            } else if ends_with_consonant_y(&lower) {
+                inflect(word, 1, "ies")
+            } else if ["s", "x", "z", "ch", "sh"]
+                .iter()
+                .any(|end| lower.ends_with(end))
+            {
+                inflect(word, 0, "es")
+            } else {
+                inflect(word, 0, "s")
+            };
+        format!("{head}{inflected}")
     }
 
-    /// The English singular of a word: `posts` → `post`, `categories` → `category`.
+    /// The English singular of a word: `posts` → `post`, `categories` → `category`, keeping
+    /// capitalisation. Words that already look singular (`status`, `analysis`, `class`) are
+    /// returned unchanged.
     pub fn singular(value: &str) -> String {
         let (head, word) = split_last_word(value);
         let lower = word.to_lowercase();
-        let singular = if UNCOUNTABLE.contains(&lower.as_str()) {
+        if UNCOUNTABLE.contains(&lower.as_str()) {
             return value.to_owned();
-        } else if let Some((singular, _)) = IRREGULAR.iter().find(|(_, plural)| *plural == lower) {
-            (*singular).to_owned()
-        } else if lower.len() > 3 && lower.ends_with("ies") {
-            format!("{}y", &lower[..lower.len() - 3])
-        } else if ["ses", "xes", "zes", "ches", "shes"]
-            .iter()
-            .any(|end| lower.ends_with(end))
-        {
-            lower[..lower.len() - 2].to_owned()
-        } else if lower.ends_with('s') && !lower.ends_with("ss") && lower.len() > 1 {
-            lower[..lower.len() - 1].to_owned()
-        } else {
-            lower
-        };
-        format!("{head}{}", match_case(word, &singular))
+        }
+        let inflected =
+            if let Some((singular, _)) = IRREGULAR.iter().find(|(_, plural)| *plural == lower) {
+                match_case(word, singular)
+            } else if ["us", "is", "ss"].iter().any(|end| lower.ends_with(end)) {
+                word.to_owned()
+            } else if lower.len() > 3 && lower.ends_with("ies") {
+                if IE_WORDS.contains(&&lower[..lower.len() - 1]) {
+                    inflect(word, 1, "")
+                } else {
+                    inflect(word, 3, "y")
+                }
+            } else if (lower.ends_with("ses") && SES_WORDS.contains(&&lower[..lower.len() - 2]))
+                || ["xes", "zes", "ches", "shes", "sses"]
+                    .iter()
+                    .any(|end| lower.ends_with(end))
+            {
+                inflect(word, 2, "")
+            } else if lower.ends_with('s') && lower.len() > 1 {
+                inflect(word, 1, "")
+            } else {
+                word.to_owned()
+            };
+        format!("{head}{inflected}")
     }
 
     /// At most `max` characters, with `end` appended when something was cut.
@@ -302,14 +335,25 @@ impl Str {
         ulid::Ulid::from_string(value).is_ok()
     }
 
-    /// A cryptographically random alphanumeric string of `length` characters.
+    /// A random alphanumeric string of `length` characters, from the operating system's random
+    /// source (one read, with unbiased sampling). Only if the OS refuses to provide randomness,
+    /// which in practice means a broken platform, does it fall back to the standard library's
+    /// randomly seeded hasher, which is unpredictable but not suitable for secrets.
     pub fn random(length: usize) -> String {
-        (0..length)
-            .map(|_| {
-                let index = usize::try_from(random::below(ALPHANUMERIC.len() as u64)).unwrap_or(0);
-                char::from(ALPHANUMERIC[index])
-            })
-            .collect()
+        // 62 symbols: bytes at or above 248 (4 * 62) are skipped, so every symbol is equally likely.
+        const LIMIT: u8 = 248;
+        let mut out = String::with_capacity(length);
+        let mut bytes = vec![0_u8; length + length / 8 + 8];
+        while out.len() < length {
+            random::fill(&mut bytes);
+            for byte in bytes.iter().filter(|byte| **byte < LIMIT) {
+                if out.len() == length {
+                    break;
+                }
+                out.push(char::from(ALPHANUMERIC[usize::from(byte % 62)]));
+            }
+        }
+        out
     }
 }
 
@@ -326,9 +370,24 @@ fn ends_with_consonant_y(word: &str) -> bool {
     rev.next() == Some('y') && rev.next().is_some_and(|c| !"aeiou".contains(c))
 }
 
+/// `word` with `strip` bytes (ASCII) cut from the end and `add` appended, in the word's case:
+/// `BlogPost` + `s` → `BlogPosts`, `CATEGORY` + `ies` → `CATEGORIES`.
+fn inflect(word: &str, strip: usize, add: &str) -> String {
+    let stem = &word[..word.len() - strip];
+    if is_all_caps(word) {
+        format!("{stem}{}", add.to_uppercase())
+    } else {
+        format!("{stem}{add}")
+    }
+}
+
+fn is_all_caps(word: &str) -> bool {
+    word.chars().count() > 1 && word.chars().all(|c| !c.is_lowercase())
+}
+
 /// Gives `inflected` the capitalisation of `original` (`Person` → `People`, `PERSON` → `PEOPLE`).
 fn match_case(original: &str, inflected: &str) -> String {
-    if original.chars().count() > 1 && original.chars().all(|c| !c.is_lowercase()) {
+    if is_all_caps(original) {
         inflected.to_uppercase()
     } else if original.chars().next().is_some_and(char::is_uppercase) {
         Str::ucfirst(inflected)
@@ -488,12 +547,18 @@ mod tests {
     #[test]
     fn cases() {
         assert_eq!(Str::slug("  Hello, Oxide World!  "), "hello-oxide-world");
-        assert_eq!(Str::slug("Crème brûlée & más"), "crème-brûlée-más");
+        assert_eq!(Str::slug("Crème brûlée & más"), "creme-brulee-mas");
+        assert_eq!(Str::ascii("Crème"), "Creme");
+        assert_eq!(Str::slug("  --  "), "");
         assert_eq!(Str::snake("HelloOxideWorld"), "hello_oxide_world");
         assert_eq!(Str::kebab("hello_oxide"), "hello-oxide");
         assert_eq!(Str::camel("hello_oxide"), "helloOxide");
         assert_eq!(Str::studly("hello_oxide"), "HelloOxide");
         assert_eq!(Str::title("hello oxide-world"), "Hello Oxide-World");
+        assert_eq!(
+            Str::title("don't stop, oxide's best"),
+            "Don't Stop, Oxide's Best"
+        );
         assert_eq!(Str::ucfirst("élan"), "Élan");
         assert_eq!(Str::lcfirst("Oxide"), "oxide");
         assert_eq!(Str::ucfirst(""), "");
@@ -513,11 +578,24 @@ mod tests {
             ("blog_post", "blog_posts"),
             ("blog_category", "blog_categories"),
             ("sheep", "sheep"),
+            ("BlogPost", "BlogPosts"),
+            ("BlogCategory", "BlogCategories"),
+            ("database", "databases"),
+            ("movie", "movies"),
+            ("cookie", "cookies"),
+            ("status", "statuses"),
+            ("alias", "aliases"),
+            ("case", "cases"),
+            ("address", "addresses"),
         ] {
             assert_eq!(Str::plural(singular), plural, "plural of {singular}");
             assert_eq!(Str::singular(plural), singular, "singular of {plural}");
         }
         assert_eq!(Str::singular("class"), "class");
+        assert_eq!(Str::singular("status"), "status");
+        assert_eq!(Str::singular("analysis"), "analysis");
+        assert_eq!(Str::singular("CATEGORIES"), "CATEGORY");
+        assert_eq!(Str::plural("CATEGORY"), "CATEGORIES");
         assert_eq!(Str::plural("PERSON"), "PEOPLE");
     }
 

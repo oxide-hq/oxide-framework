@@ -49,6 +49,7 @@ dotenvy = "0.15"
 uuid = { version = "1", features = ["v4", "v7"] }
 ulid = "3"
 getrandom = "0.4"
+deunicode = "1"
 
 # Proc-macro tooling
 syn = { version = "3", features = ["full"] }

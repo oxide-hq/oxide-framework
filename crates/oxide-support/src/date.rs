@@ -35,7 +35,7 @@ pub fn diff_for_humans_from(when: DateTime<Utc>, relative_to: DateTime<Utc>) -> 
         3_600..=86_399 => (magnitude / 3_600, "hour"),
         86_400..=604_799 => (magnitude / 86_400, "day"),
         604_800..=2_591_999 => (magnitude / 604_800, "week"),
-        2_592_000..=31_535_999 => (magnitude / 2_592_000, "month"),
+        2_592_000..=31_535_999 => ((magnitude / 2_592_000).min(11), "month"),
         _ => (magnitude / 31_536_000, "year"),
     };
     let plural = if count == 1 { "" } else { "s" };
@@ -68,6 +68,7 @@ mod tests {
             (Duration::days(-3), "3 days ago"),
             (Duration::weeks(-2), "2 weeks ago"),
             (Duration::days(-65), "2 months ago"),
+            (Duration::days(-364), "11 months ago"),
             (Duration::days(-800), "2 years ago"),
             (Duration::minutes(90), "in 1 hour"),
             (Duration::days(1), "in 1 day"),

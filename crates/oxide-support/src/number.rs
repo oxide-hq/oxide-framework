@@ -1,5 +1,11 @@
 //! Number formatting helpers, like Laravel's `Number`.
 
+/// `value` rounded to `precision` decimals.
+fn rounded(value: f64, precision: usize) -> f64 {
+    let factor = 10_f64.powi(i32::try_from(precision).unwrap_or(i32::MAX));
+    (value * factor).round() / factor
+}
+
 /// `Number` helpers as associated functions.
 #[derive(Debug, Clone, Copy)]
 pub struct Number;
@@ -42,7 +48,10 @@ impl Number {
     pub fn file_size(bytes: u64, precision: usize) -> String {
         let mut value = bytes as f64;
         let mut unit = 0;
-        while value >= 1024.0 && unit < FILE_UNITS.len() - 1 {
+        // Also move up when rounding would print 1024 (1023.9 KB at precision 0 is 1 MB).
+        while unit < FILE_UNITS.len() - 1
+            && (value >= 1024.0 || (unit > 0 && rounded(value, precision) >= 1024.0))
+        {
             value /= 1024.0;
             unit += 1;
         }
@@ -54,7 +63,10 @@ impl Number {
     pub fn abbreviate(value: f64, precision: usize) -> String {
         let mut scaled = value;
         let mut unit = 0;
-        while scaled.abs() >= 1000.0 && unit < ABBREVIATIONS.len() - 1 {
+        // Also move up when rounding would print 1000 (999.9K at precision 0 is 1M).
+        while unit < ABBREVIATIONS.len() - 1
+            && (scaled.abs() >= 1000.0 || rounded(scaled, precision).abs() >= 1000.0)
+        {
             scaled /= 1000.0;
             unit += 1;
         }
@@ -133,6 +145,12 @@ mod tests {
         assert_eq!(Number::abbreviate(3_000_000.0, 0), "3M");
         assert_eq!(Number::abbreviate(950.0, 0), "950");
         assert_eq!(Number::abbreviate(-2_500.0, 1), "-2.5K");
+        // Rounding that reaches the next unit moves up instead of printing 1000K / 1,024 KB.
+        assert_eq!(Number::abbreviate(999_999.0, 0), "1M");
+        assert_eq!(Number::abbreviate(999.6, 0), "1K");
+        assert_eq!(Number::file_size(1_048_575, 0), "1 MB");
+        assert_eq!(Number::file_size(1_048_575, 2), "1.00 MB");
+        assert_eq!(Number::file_size(1_023, 0), "1,023 B");
     }
 
     #[test]

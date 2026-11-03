@@ -21,7 +21,9 @@ pub trait CollectionExt: IntoIterator + Sized {
         self.into_iter().map(|item| (key(&item), item)).collect()
     }
 
-    /// Groups the items by a key, keeping their order inside each group.
+    /// Groups the items by a key, keeping their order inside each group. The groups themselves
+    /// are unordered; use [`group_by_ordered`](Self::group_by_ordered) to iterate them in
+    /// first-seen order.
     fn group_by<K: Hash + Eq>(
         self,
         mut key: impl FnMut(&Self::Item) -> K,
@@ -29,6 +31,26 @@ pub trait CollectionExt: IntoIterator + Sized {
         let mut groups: HashMap<K, Vec<Self::Item>> = HashMap::new();
         for item in self {
             groups.entry(key(&item)).or_default().push(item);
+        }
+        groups
+    }
+
+    /// Groups the items by a key like [`group_by`](Self::group_by), but as a list in the order
+    /// each key was first seen, like Laravel's `groupBy`.
+    fn group_by_ordered<K: Hash + Eq + Clone>(
+        self,
+        mut key: impl FnMut(&Self::Item) -> K,
+    ) -> Vec<(K, Vec<Self::Item>)> {
+        let mut index: HashMap<K, usize> = HashMap::new();
+        let mut groups: Vec<(K, Vec<Self::Item>)> = Vec::new();
+        for item in self {
+            let key = key(&item);
+            if let Some(position) = index.get(&key) {
+                groups[*position].1.push(item);
+            } else {
+                index.insert(key.clone(), groups.len());
+                groups.push((key, vec![item]));
+            }
         }
         groups
     }
@@ -57,23 +79,24 @@ pub trait CollectionExt: IntoIterator + Sized {
 
     /// The average of a projection, or `None` for an empty collection.
     fn avg_by(self, mut project: impl FnMut(Self::Item) -> f64) -> Option<f64> {
-        let (total, count) = self.into_iter().fold((0.0, 0_u32), |(total, count), item| {
+        let (total, count) = self.into_iter().fold((0.0, 0_u64), |(total, count), item| {
             (total + project(item), count + 1)
         });
-        (count > 0).then(|| total / f64::from(count))
+        #[allow(clippy::cast_precision_loss)] // an average of billions of items needs no more
+        (count > 0).then(|| total / count as f64)
     }
 
     /// Sorts ascending by a key (stable).
     fn sorted_by<K: Ord>(self, key: impl FnMut(&Self::Item) -> K) -> Vec<Self::Item> {
         let mut items: Vec<Self::Item> = self.into_iter().collect();
-        items.sort_by_key(key);
+        items.sort_by_cached_key(key);
         items
     }
 
     /// Sorts descending by a key (stable), like Laravel's `sortByDesc`.
     fn sorted_by_desc<K: Ord>(self, mut key: impl FnMut(&Self::Item) -> K) -> Vec<Self::Item> {
         let mut items: Vec<Self::Item> = self.into_iter().collect();
-        items.sort_by_key(|item| std::cmp::Reverse(key(item)));
+        items.sort_by_cached_key(|item| std::cmp::Reverse(key(item)));
         items
     }
 
@@ -113,12 +136,14 @@ pub trait CollectionExt: IntoIterator + Sized {
     where
         Self::Item: Display,
     {
+        use std::fmt::Write;
+
         let mut out = String::new();
         for (index, item) in self.into_iter().enumerate() {
             if index > 0 {
                 out.push_str(separator);
             }
-            out.push_str(&item.to_string());
+            let _ = write!(out, "{item}");
         }
         out
     }
@@ -208,6 +233,12 @@ mod tests {
     fn keys_groups_and_counts() {
         let by_name = users().key_by(|u| u.name);
         assert_eq!(by_name["bob"].age, 25);
+        let ordered = users().group_by_ordered(|u| u.role);
+        assert_eq!(
+            ordered.iter().map(|(role, _)| *role).collect::<Vec<_>>(),
+            ["admin", "editor"]
+        );
+        assert_eq!(ordered[0].1.len(), 2);
         let groups = users().group_by(|u| u.role);
         assert_eq!(
             groups["admin"].iter().map(|u| u.name).collect::<Vec<_>>(),

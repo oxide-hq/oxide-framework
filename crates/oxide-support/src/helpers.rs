@@ -112,7 +112,8 @@ impl Lottery {
 
     /// Draws once.
     pub fn wins(self) -> bool {
-        self.wins_with(random::below(self.out_of))
+        // `out_of` of zero is no lottery at all: nobody wins.
+        self.out_of > 0 && self.wins_with(random::below(self.out_of))
     }
 
     /// The outcome for a given draw in `0..out_of`: deterministic, for tests.
@@ -223,6 +224,7 @@ mod tests {
         assert!(!odds.wins_with(1));
         assert!(Lottery::odds(5, 5).wins());
         assert!(!Lottery::odds(0, 5).wins());
+        assert!(!Lottery::odds(1, 0).wins());
         assert_eq!(Lottery::odds(5, 5).choose(|| "won", || "lost"), "won");
         assert_eq!(Lottery::odds(0, 5).choose(|| "won", || "lost"), "lost");
         let wins = (0..2000).filter(|_| Lottery::odds(1, 2).wins()).count();

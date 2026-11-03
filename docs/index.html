@@ -1398,7 +1398,7 @@ kbd {
   <table>
     <thead><tr><th>Laravel</th><th>Oxide</th></tr></thead>
     <tbody>
-      <tr><td><code>keyBy</code>, <code>groupBy</code>, <code>countBy</code>, <code>mapWithKeys</code></td><td><code>key_by</code>, <code>group_by</code>, <code>count_by</code>, <code>map_with_keys</code></td></tr>
+      <tr><td><code>keyBy</code>, <code>groupBy</code>, <code>countBy</code>, <code>mapWithKeys</code></td><td><code>key_by</code>, <code>group_by</code> (a map; <code>group_by_ordered</code> keeps first-seen order), <code>count_by</code>, <code>map_with_keys</code></td></tr>
       <tr><td><code>sum('x')</code>, <code>avg('x')</code></td><td><code>sum_by</code>, <code>avg_by</code></td></tr>
       <tr><td><code>sortBy</code>, <code>sortByDesc</code></td><td><code>sorted_by</code>, <code>sorted_by_desc</code></td></tr>
       <tr><td><code>unique('x')</code>, <code>chunk(n)</code>, <code>where('x', v)</code>, <code>implode</code></td><td><code>unique_by</code>, <code>chunk</code>, <code>where_eq</code>, <code>implode</code></td></tr>
@@ -1415,6 +1415,7 @@ kbd {
   <p><code>Str</code> holds the functions and <code>Str::of(..)</code> starts a fluent <code>Stringable</code> chain.</p>
   <script type="text/plain" data-lang="rust">
     Str::slug("Hello, Oxide World!");            // "hello-oxide-world"
+    Str::ascii("Crème brûlée");                 // "Creme brulee"; slug() transliterates the same way
     Str::plural("category");                     // "categories"
     Str::singular("blog_posts");                 // "blog_post"
     Str::limit("The quick brown fox", 9, "…");   // "The quick…"
