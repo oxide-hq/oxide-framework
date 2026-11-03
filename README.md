@@ -22,7 +22,8 @@ everything is checked at compile time. It is built on [Axum 0.8](https://docs.rs
 | Service container       | `#[derive(ServiceContainer)]` on your state, `#[derive(Service)]` on services |
 | Facades                 | `AppContext::resolve::<Mailer>()` inside `facade_middleware` (task-local)     |
 | `FormRequest`           | `#[derive(FormRequest)]` + the `Validated<T>` extractor                       |
-| Route-model binding     | `impl RouteBindable` + the `Bind<T>` extractor                                |
+| Eloquent models         | `#[derive(Model)]` → `Post::query().where_published(true).get(&db)`           |
+| Route-model binding     | `Bind<Post>` — automatic for `Model`s, or `impl RouteBindable` by hand        |
 | Routes & resources      | `routes! { prefix(..) { resource("/posts", PostController); } }`              |
 | Named routes / `route()`| `route!("posts.show", post = 42)` → `/api/v1/posts/42`                        |
 | Error responses         | `OxideHttpError` → Laravel-shaped JSON for 400 / 403 / 404 / 422 / 500        |
@@ -136,6 +137,45 @@ the singular of the last segment (`/posts` → `{post}`, `/categories` → `{cat
 with `param = "..."`. Duplicate route names and paths that don't start with `/` are compile
 errors. Inside handlers, the `UrlGenerator` extractor generates URLs from the same registry.
 
+### Models (`oxide-orm`)
+
+`#[derive(Model)]` turns an `sqlx::FromRow` struct into an Eloquent-style model backed by SQLite.
+Every query method is generated per field and binds its values as `?` parameters.
+
+```rust
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, Model)]
+#[model(table = "posts")]
+pub struct Post {
+    pub id: i64,
+    pub author_id: i64,
+    pub title: String,
+    pub published: bool,
+}
+
+let db = DatabasePool::connect_in_memory().await?;
+let posts = Post::query()
+    .where_published(true)
+    .where_title_contains("Oxide")
+    .order_by_id_desc()
+    .limit(10)
+    .get(&db)
+    .await?;
+let prolific = Post::query().where_author_id_gte(10).count(&db).await?;
+
+let mut post = Post::insert(&db, &NewPost { author_id: 1, title: "Hi".into(), published: false }).await?;
+post.title = "Hello".into();
+post.save(&db).await?;
+post.delete(&db).await?;
+```
+
+The derive also generates `find`, `find_or_fail`, `all`, `create`, `where_<field>_in`,
+`_not`, `_null`/`_not_null` on `Option` fields, `first`, `first_or_fail` and `delete` on queries,
+plus `has_many`/`belongs_to` helpers. It implements `RouteBindable` for any state that provides a
+`DatabasePool`, so `Bind<Post>` loads the row from `{post}` and answers 404 when it is missing.
+`OrmError::NotFound` converts to a 404 and database errors to an opaque 500. See
+[`crates/oxide-orm/tests/eloquent_http_test.rs`](crates/oxide-orm/tests/eloquent_http_test.rs)
+for a full CRUD API.
+
 ### Testing
 
 ```rust
@@ -171,6 +211,8 @@ refers to `::validator`. Your crate therefore needs `validator` (with the `deriv
 | ------------------------------------------------ | ---------------------------------------------------------------- |
 | [`oxide-http`](crates/oxide-http)                | Extractors, error contract, service container traits, `TestClient` |
 | [`oxide-http-macros`](crates/oxide-http-macros)  | `Service`, `ServiceContainer` and `FormRequest` derives (re-exported by `oxide-http`) |
+| [`oxide-orm`](crates/oxide-orm)                  | `DatabasePool`, `Model` trait, typed queries, `OrmError` (sqlx + SQLite) |
+| [`oxide-orm-macros`](crates/oxide-orm-macros)    | `#[derive(Model)]` (re-exported by `oxide-orm`) |
 
 ## Development
 
