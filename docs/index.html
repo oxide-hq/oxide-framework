@@ -978,10 +978,15 @@ kbd {
       <tr><td><code>ValidatePostSize</code></td><td><code>ValidatePostSize::new(2 * 1024 * 1024)</code></td><td><code>413</code> for bodies over the limit, from <code>Content-Length</code> or while reading.</td></tr>
       <tr><td>security headers</td><td><code>SecurityHeaders::new().hsts(31_536_000, true)</code></td><td><code>nosniff</code>, frame and referrer policies by default; add HSTS, CSP or others. Never overrides a header the handler set.</td></tr>
       <tr><td><code>SetCacheHeaders</code></td><td><code>SetCacheHeaders::new().public().max_age(3600)</code></td><td><code>Cache-Control</code> on successful <code>GET</code>/<code>HEAD</code> responses that don't set one.</td></tr>
+      <tr><td><code>TrustProxies</code></td><td><code>TrustProxies::new(["10.0.0.0/8"])?</code></td><td>Finds the real client address, scheme and host behind proxies from <code>X-Forwarded-*</code>, believing them only from proxies you list. Read the result with the <code>Client</code> extractor.</td></tr>
+      <tr><td><code>PreventRequestsDuringMaintenance</code></td><td><code>PreventRequestsDuringMaintenance::new("storage/framework/down").except(["/up"])</code></td><td><code>503</code> with <code>Retry-After</code> while the maintenance file exists. <code>down(..)</code> writes it and <code>up(..)</code> removes it; the <code>oxide down</code> and <code>oxide up</code> commands will call them.</td></tr>
       <tr><td><code>RequestId</code></td><td>built in</td><td><code>Application</code> already gives every request an id and an <code>X-Request-Id</code> header.</td></tr>
     </tbody>
   </table>
-  <p>The body-rewriting middleware read the whole JSON body (2 MiB by default; change it with <code>max_body</code>) and leave non-JSON and unparseable bodies for the handler to reject. Trusted proxies and maintenance mode are still to come.</p>
+  <p>The body-rewriting middleware read the whole JSON body (2 MiB by default; change it with <code>max_body</code>) and leave non-JSON and unparseable bodies for the handler to reject. Maintenance mode checks its file at most once a second. A request with the <code>X-Maintenance-Secret</code> header matching the secret you gave <code>down</code> gets through, so you can test a deploy before reopening.</p>
+  <div class="callout warning">
+    <p><code>TrustProxies</code> needs the peer's address, which <code>Application::serve</code> provides. Trust only the proxies that really sit in front of the app: <code>TrustProxies::all()</code> is for apps reachable only through one, because otherwise anyone can claim to be anyone with a forged <code>X-Forwarded-For</code>.</p>
+  </div>
 
   <h2>Terminable middleware</h2>
   <p>Return <code>true</code> from <code>terminable()</code> and implement <code>terminate(&amp;Outcome)</code> to run work after the response is produced, such as recording metrics. It runs on a spawned task with the method, path, status and headers of the finished request, so it never slows the response and cannot change it.</p>
