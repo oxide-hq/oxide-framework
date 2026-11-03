@@ -49,7 +49,7 @@ where
     Response::new(Body::from_stream(stream))
 }
 
-/// Serves a file inline, with a content type guessed from its extension.
+/// Serves a file inline (read fully into memory; stream big files with [`stream`]), with a content type guessed from its extension.
 pub async fn file(path: impl AsRef<Path>) -> Result<Response, OxideHttpError> {
     let path = path.as_ref();
     let bytes = read(path).await?;
@@ -132,9 +132,8 @@ pub mod redirect {
 
     fn with_status(location: &str, status: StatusCode) -> Response {
         let mut response = status.into_response();
-        if let Ok(value) = HeaderValue::from_str(location) {
-            response.headers_mut().insert(LOCATION, value);
-        }
+        let value = HeaderValue::from_str(location).unwrap_or(HeaderValue::from_static("/"));
+        response.headers_mut().insert(LOCATION, value);
         response
     }
 
@@ -186,6 +185,14 @@ pub mod redirect {
     }
 }
 
+/// A cookie's `SameSite` policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SameSite {
+    Strict,
+    Lax,
+    None,
+}
+
 /// A `Set-Cookie` value. Plain only; signed and encrypted cookies arrive with sessions.
 #[derive(Debug, Clone)]
 pub struct Cookie {
@@ -195,7 +202,7 @@ pub struct Cookie {
     max_age: Option<u64>,
     http_only: bool,
     secure: bool,
-    same_site: &'static str,
+    same_site: SameSite,
 }
 
 impl Cookie {
@@ -207,7 +214,7 @@ impl Cookie {
             max_age: None,
             http_only: false,
             secure: false,
-            same_site: "Lax",
+            same_site: SameSite::Lax,
         }
     }
 
@@ -235,9 +242,9 @@ impl Cookie {
         self
     }
 
-    /// `Strict`, `Lax` or `None`.
+    /// `SameSite=None` also sets `Secure`, which browsers require.
     #[must_use]
-    pub fn same_site(mut self, policy: &'static str) -> Self {
+    pub fn same_site(mut self, policy: SameSite) -> Self {
         self.same_site = policy;
         self
     }
@@ -251,10 +258,14 @@ impl Cookie {
         use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
         let mut out = format!(
             "{}={}; Path={}; SameSite={}",
-            self.name,
+            utf8_percent_encode(&self.name, NON_ALPHANUMERIC),
             utf8_percent_encode(&self.value, NON_ALPHANUMERIC),
-            self.path,
-            self.same_site
+            self.path.replace(|c: char| c == ';' || c.is_control(), ""),
+            match self.same_site {
+                SameSite::Strict => "Strict",
+                SameSite::Lax => "Lax",
+                SameSite::None => "None",
+            }
         );
         if let Some(age) = self.max_age {
             let _ = write!(out, "; Max-Age={age}");
@@ -262,7 +273,7 @@ impl Cookie {
         if self.http_only {
             out.push_str("; HttpOnly");
         }
-        if self.secure {
+        if self.secure || self.same_site == SameSite::None {
             out.push_str("; Secure");
         }
         out
@@ -397,6 +408,16 @@ mod tests {
         );
         assert!(cookies[1].to_str().unwrap().contains("Max-Age=0"));
         assert_eq!(no_content().status(), StatusCode::NO_CONTENT);
+    }
+
+    #[test]
+    fn cookies_resist_attribute_injection() {
+        let value = Cookie::new("a b", "v")
+            .path("/; Domain=evil")
+            .same_site(SameSite::None)
+            .render();
+        assert_eq!(value, "a%20b=v; Path=/ Domain=evil; SameSite=None; Secure");
+        assert_eq!(redirect::away("bad\nurl").headers()[LOCATION], "/");
     }
 
     #[tokio::test]

@@ -35,7 +35,7 @@ pub use input::Input;
 pub use oxide_http_macros::*;
 pub use request::{Authorize, FormRequest, Validated};
 pub use request_ext::{RequestExt, negotiate};
-pub use response::{Cookie, Responsable, ResponseExt};
+pub use response::{Cookie, Responsable, ResponseExt, SameSite};
 pub use routing::{OxideRouter, RouteMetadata, RouteRegistry, UrlGenerator, url_for};
 
 /// Re-exports used by generated code. Not public API.
