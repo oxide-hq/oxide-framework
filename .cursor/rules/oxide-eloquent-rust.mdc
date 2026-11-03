@@ -120,6 +120,7 @@ These are review blockers.
 | Need | Use |
 | ---- | --- |
 | Settings | `#[derive(Deserialize, Config)] #[config(file = "app")]` struct; `#[config(env = "APP_PORT", default = 3000, secret)]` per field; load with `Configuration::builder().section::<AppConfig>().load()`; read via the `Config<AppConfig>` extractor or `config_of::<Ctx, AppConfig>()`. Don't derive `Debug` on a section (the derive writes one that hides secrets) |
+| Collection-style helpers | `CollectionExt` on any iterator (`group_by`, `key_by`, `sum_by`, `sorted_by_desc`, lazy `chunk`/`unique_by`); `Tap` (`pipe`/`tap`/`when`); `Str`/`Str::of(..)`, `Arr` (dot paths on JSON), `Number`, `diff_for_humans`, `Pipeline`, `Lottery`, `retry`. Prefer `Iterator` methods where `std` already has the equivalent (`map`, `filter`, `partition`, `find`, `fold`) |
 | Inject a service into a handler | `#[derive(Clone, Service)]` on the service, `#[derive(Clone, ServiceContainer)]` on the app state, then take `mailer: Mailer` as a handler argument |
 | Facade-style access | `AppContext::resolve::<Mailer>()` inside `facade_middleware` |
 | Validate and authorize input | `#[derive(Deserialize, Validate, FormRequest)]` (+ `#[form_request(authorize)]` and `impl Authorize<S>`), extract `Validated<T>` |

@@ -17,6 +17,7 @@ oxide-orm = { path = "crates/oxide-orm", version = "0.1.0" }
 oxide-orm-macros = { path = "crates/oxide-orm-macros", version = "0.1.0" }
 oxide-config = { path = "crates/oxide-config", version = "0.1.0" }
 oxide-config-macros = { path = "crates/oxide-config-macros", version = "0.1.0" }
+oxide-support = { path = "crates/oxide-support", version = "0.1.0" }
 oxide = { path = "crates/oxide", version = "0.1.0" }
 
 # HTTP runtime
@@ -43,6 +44,11 @@ console = "0.16"
 heck = "0.5"
 toml = "1"
 dotenvy = "0.15"
+
+# Support helpers
+uuid = { version = "1", features = ["v4", "v7"] }
+ulid = "3"
+getrandom = "0.4"
 
 # Proc-macro tooling
 syn = { version = "3", features = ["full"] }

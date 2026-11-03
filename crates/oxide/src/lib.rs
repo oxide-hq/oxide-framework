@@ -1,8 +1,9 @@
 //! # Oxide
 //!
 //! Laravel's developer ergonomics with compile-time safe Rust, on Axum and sqlx. This crate is
-//! the single dependency an Oxide application needs: it re-exports configuration as [`config`] (`oxide-config`), the HTTP layer as
-//! [`http`] (`oxide-http`) and the ORM as [`orm`] (`oxide-orm`), and gathers the everyday items
+//! the single dependency an Oxide application needs: it re-exports configuration as [`config`]
+//! (`oxide-config`), the HTTP layer as [`http`] (`oxide-http`), the ORM as [`orm`] (`oxide-orm`)
+//! and the helpers as [`support`] (`oxide-support`), and gathers the everyday items
 //! into one prelude.
 //!
 //! ```ignore
@@ -30,6 +31,7 @@ extern crate self as oxide;
 pub use oxide_config as config;
 pub use oxide_http as http;
 pub use oxide_orm as orm;
+pub use oxide_support as support;
 
 /// Axum, which Oxide builds on: `oxide::axum::serve`, `oxide::axum::Router`, Tower layers, ...
 pub use axum;
@@ -40,6 +42,7 @@ pub use oxide_http::{
     ServiceContainer, UrlGenerator, Validated, facade_middleware, route, routes, url_for,
 };
 pub use oxide_orm::{DatabasePool, Driver, Model, OrmError};
+pub use oxide_support::{Arr, CollectionExt, Number, Str, Stringable, Tap};
 
 /// Everything you need for day-to-day Oxide code: `use oxide::prelude::*;`.
 pub mod prelude {
@@ -48,4 +51,5 @@ pub mod prelude {
     pub use oxide_config::prelude::*;
     pub use oxide_http::prelude::*;
     pub use oxide_orm::prelude::*;
+    pub use oxide_support::prelude::*;
 }

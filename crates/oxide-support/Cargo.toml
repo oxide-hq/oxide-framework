@@ -1,0 +1,23 @@
+[package]
+name = "oxide-support"
+description = "Laravel-style helpers for Rust: collections, strings, arrays, numbers, dates, pipelines and retries."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+heck.workspace = true
+chrono.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+ulid.workspace = true
+getrandom.workspace = true
+tokio = { workspace = true, features = ["time"] }
+
+[dev-dependencies]
+tokio.workspace = true
+
+[lints]
+workspace = true
