@@ -411,7 +411,7 @@ fn files(options: &NewOptions) -> Vec<(String, String)> {
         ("src/http/mod.rs".to_owned(), r(templates::HTTP_MOD)),
         (
             "src/http/middleware/mod.rs".to_owned(),
-            "//! Middleware. Generate one with `oxide make:middleware`.\n".to_owned(),
+            templates::MIDDLEWARE_MOD.to_owned(),
         ),
         ("src/routes/mod.rs".to_owned(), r(templates::ROUTES_MOD)),
     ];

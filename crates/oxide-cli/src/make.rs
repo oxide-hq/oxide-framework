@@ -238,8 +238,16 @@ pub fn make_middleware(
     name: &str,
     force: bool,
 ) -> Result<Vec<Created>, CliError> {
-    let middleware = names::type_name(name)?;
+    let middleware = names::middleware_name(name)?;
     let module = names::module_name(&middleware)?;
+    // Check the files that register the module exist before creating anything, so a failure
+    // can't leave a middleware behind that nothing refers to.
+    let http_mod = project.root.join("src/http/mod.rs");
+    if !http_mod.is_file() {
+        return Err(CliError::invalid(
+            "src/http/mod.rs not found; run this inside an application created by `oxide new`",
+        ));
+    }
     let base = middleware
         .strip_suffix("Middleware")
         .filter(|base| !base.is_empty())
@@ -260,17 +268,9 @@ pub fn make_middleware(
     )?;
     let mod_file = project.root.join("src/http/middleware/mod.rs");
     if !mod_file.exists() {
-        fs::write(
-            &mod_file,
-            "//! Middleware. Generate one with `oxide make:middleware`.\n",
-        )
-        .map_err(CliError::io(&mod_file))?;
+        fs::write(&mod_file, templates::MIDDLEWARE_MOD).map_err(CliError::io(&mod_file))?;
     }
-    register_module(
-        &project.root.join("src/http/mod.rs"),
-        "pub mod middleware;",
-        None,
-    )?;
+    register_module(&http_mod, "pub mod middleware;", None)?;
     register_module(&mod_file, &format!("pub mod {module};"), None)?;
     Ok(vec![Created {
         kind: "Middleware",

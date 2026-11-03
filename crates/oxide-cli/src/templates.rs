@@ -45,6 +45,11 @@ templates! {
     MIDDLEWARE => "make/middleware.rs.tpl",
 }
 
+/// The `src/http/middleware/mod.rs` of a new app, and of an older one on its first
+/// `make:middleware`.
+pub(crate) const MIDDLEWARE_MOD: &str =
+    "//! Middleware. Generate one with `oxide make:middleware`.\n";
+
 /// The Oxide Eloquent Rust skill, as maintained for the framework repository.
 const SKILL: &str = include_str!("../../../.claude/skills/oxide-eloquent-rust/SKILL.md");
 

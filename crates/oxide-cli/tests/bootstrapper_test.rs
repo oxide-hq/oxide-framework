@@ -373,3 +373,31 @@ fn make_middleware_works_in_apps_generated_before_it_existed() {
     assert!(read(&app, "src/http/middleware/mod.rs").contains("pub mod audit;"));
     assert!(app.join("src/http/middleware/audit.rs").is_file());
 }
+
+#[test]
+fn make_middleware_refuses_clashing_names_and_works_without_a_database() {
+    let dir = sandbox();
+    let minimal = new_app(&dir, "tiny-app", &["--preset", "minimal"]);
+    succeeds(oxide(&minimal, &["make:middleware", "EnsureRole"]));
+    assert!(minimal.join("src/http/middleware/ensure_role.rs").is_file());
+
+    // Names the generated file already imports would not compile.
+    for name in ["Middleware", "Request", "MwNext"] {
+        let error = fails(oxide(&minimal, &["make:middleware", name]));
+        assert!(
+            error.contains("already used by the generated middleware file"),
+            "{name}: {error}"
+        );
+        assert!(
+            !minimal
+                .join(format!("src/http/middleware/{}.rs", name.to_lowercase()))
+                .exists()
+        );
+    }
+
+    // A project that isn't an app with an http module is refused before anything is written.
+    fs::remove_file(minimal.join("src/http/mod.rs")).unwrap();
+    let error = fails(oxide(&minimal, &["make:middleware", "Audit"]));
+    assert!(error.contains("src/http/mod.rs not found"), "{error}");
+    assert!(!minimal.join("src/http/middleware/audit.rs").exists());
+}
