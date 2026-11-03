@@ -672,9 +672,8 @@ fn apply_case(field: &str, case: &str) -> String {
     };
     let words = field.split('_').filter(|w| !w.is_empty());
     match case {
-        "lowercase" => field.replace('_', "").to_lowercase(),
-        "UPPERCASE" => field.replace('_', "").to_uppercase(),
-        "SCREAMING_SNAKE_CASE" => field.to_uppercase(),
+        "lowercase" => field.to_lowercase(),
+        "UPPERCASE" | "SCREAMING_SNAKE_CASE" => field.to_uppercase(),
         "kebab-case" => field.replace('_', "-"),
         "camelCase" => words
             .enumerate()
@@ -772,7 +771,8 @@ mod tests {
         assert_eq!(apply_case("author_id", "PascalCase"), "AuthorId");
         assert_eq!(apply_case("author_id", "SCREAMING_SNAKE_CASE"), "AUTHOR_ID");
         assert_eq!(apply_case("author_id", "kebab-case"), "author-id");
-        assert_eq!(apply_case("author_id", "lowercase"), "authorid");
+        assert_eq!(apply_case("author_id", "lowercase"), "author_id");
+        assert_eq!(apply_case("author_id", "UPPERCASE"), "AUTHOR_ID");
         assert_eq!(apply_case("author_id", "snake_case"), "author_id");
     }
 }
