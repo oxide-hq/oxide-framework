@@ -128,6 +128,7 @@ These are review blockers.
 | Accept file uploads | `uploads: Uploads` (`.file("avatar")`, `.files`, `.field`); `file.validate("avatar", &FileRules::new().image().mimes(&["png"]).max_kb(2048))?`; bound the body with `DefaultBodyLimit` |
 | Constrain a route parameter | `middleware(where_number("id")) { get("/posts/{id}", show); }`; also `where_alpha`, `where_alpha_numeric`, `where_uuid`, `where_in(name, &[..])`, `where_fn(name, |v| ..)` (404 on mismatch) |
 | Fallback / redirect routes | `router.fallback(handler)`; `get("/old", redirect_to("/new"))`, `permanent_redirect_to` |
+| Rename resource routes | `api_resource("/photos", Photos, names = "gallery", only = [index, show])`; nest with `resource("/posts/{post}/comments", C)` |
 | Inject a service into a handler | `#[derive(Clone, Service)]` on the service, `#[derive(Clone, ServiceContainer)]` on the app state, then take `mailer: Mailer` as a handler argument |
 | Facade-style access | `AppContext::resolve::<Mailer>()` inside `facade_middleware` |
 | Validate and authorize input | `#[derive(Deserialize, Validate, FormRequest)]` (+ `#[form_request(authorize)]` and `impl Authorize<S>`), extract `Validated<T>` |

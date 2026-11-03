@@ -45,6 +45,7 @@ struct Resource {
     path: LitStr,
     controller: Path,
     param: Option<LitStr>,
+    names: Option<LitStr>,
     only: Option<Vec<Ident>>,
     except: Option<Vec<Ident>>,
 }
@@ -89,7 +90,7 @@ impl Parse for Stmt {
         }
 
         match kw.as_str() {
-            "resource" => {
+            "resource" | "api_resource" => {
                 let resource = parse_resource(keyword, &args)?;
                 input.parse::<Token![;]>()?;
                 Ok(Self::Resource(resource))
@@ -163,6 +164,7 @@ fn parse_resource(keyword: Ident, args: ParseStream<'_>) -> syn::Result<Resource
         path,
         controller,
         param: None,
+        names: None,
         only: None,
         except: None,
     };
@@ -172,6 +174,7 @@ fn parse_resource(keyword: Ident, args: ParseStream<'_>) -> syn::Result<Resource
         args.parse::<Token![=]>()?;
         match option.to_string().as_str() {
             "param" => resource.param = Some(args.parse()?),
+            "names" => resource.names = Some(args.parse()?),
             "only" | "except" => {
                 let list;
                 bracketed!(list in args);
@@ -199,7 +202,7 @@ fn parse_resource(keyword: Ident, args: ParseStream<'_>) -> syn::Result<Resource
                 return Err(syn::Error::new(
                     option.span(),
                     format!(
-                        "unknown resource option `{other}`; expected `param`, `only` or `except`"
+                        "unknown resource option `{other}`; expected `param`, `names`, `only` or `except`"
                     ),
                 ));
             }
@@ -320,7 +323,10 @@ impl Expander {
                 "resource path needs at least one static segment, e.g. \"/posts\"",
             ));
         };
-        let base_name = format!("{}{}", scope.name, statics.join("."));
+        let base_name = resource.names.as_ref().map_or_else(
+            || format!("{}{}", scope.name, statics.join(".")),
+            |names| format!("{}{}", scope.name, names.value()),
+        );
         let param = resource
             .param
             .as_ref()
