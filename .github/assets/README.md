@@ -8,6 +8,9 @@
 
 ## Palette
 
+The documentation site (`docs/index.html`) uses the same palette: rust orange as the primary
+accent (`#D9480F` on hover) and verdigris for focus and the active state.
+
 | Token        | Hex       |
 | ------------ | --------- |
 | Rust orange  | `#E8590C` |

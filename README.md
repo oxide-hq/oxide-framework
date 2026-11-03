@@ -6,6 +6,7 @@
   <a href="https://github.com/oxide-hq/oxide-framework/actions/workflows/ci.yml"><img src="https://github.com/oxide-hq/oxide-framework/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="#license"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="License: MIT OR Apache-2.0"></a>
   <a href="rust-toolchain.toml"><img src="https://img.shields.io/badge/MSRV-1.88-orange.svg" alt="MSRV 1.88"></a>
+  <a href="https://oxide-hq.github.io/oxide-framework/"><img src="https://img.shields.io/badge/docs-oxide--hq.github.io-E8590C.svg" alt="Documentation"></a>
 </p>
 
 **Oxide** is a Laravel-inspired web framework for Rust. It aims to give you Laravel's developer
@@ -14,6 +15,13 @@ everything is checked at compile time. It is built on [Axum 0.8](https://docs.rs
 [Tokio](https://tokio.rs).
 
 > **Status:** early development (Phase 1). APIs will change.
+
+## Documentation
+
+The full guide lives at **[oxide-hq.github.io/oxide-framework](https://oxide-hq.github.io/oxide-framework/)**:
+routing, controllers, form requests, route-model binding, the ORM and HTTP testing, with Laravel
+comparisons throughout. Its source is [`docs/index.html`](docs/index.html), deployed by
+[`docs.yml`](.github/workflows/docs.yml) on every push to `main`.
 
 ## Features
 
