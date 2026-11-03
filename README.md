@@ -270,6 +270,7 @@ just lint       # cargo clippy --workspace --all-targets -- -D warnings
 just fmt        # cargo fmt --all
 just ci         # fmt-check + lint + test
 just e2e        # scaffold apps with `oxide new` and run their own tests
+just coverage   # HTML line-coverage report (needs cargo-llvm-cov); CI fails below 85%
 just deny       # cargo deny check (needs cargo-deny)
 just expand     # cargo expand (needs cargo-expand)
 ```

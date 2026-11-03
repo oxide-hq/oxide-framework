@@ -29,6 +29,18 @@ test-pg engine="podman":
 e2e:
     cargo test -p oxide-cli --test bootstrapper_test -- --ignored
 
+# Files left out of the coverage denominator: test code, generator templates and the umbrella fixture.
+cov_ignore := '(/tests/|/templates/|oxide-umbrella-test)'
+
+# HTML coverage report in target/llvm-cov/html (needs cargo-llvm-cov; set OXIDE_TEST_POSTGRES_URL to cover PostgreSQL)
+coverage:
+    cargo llvm-cov --workspace --all-features --ignore-filename-regex '{{cov_ignore}}' --html
+    @echo "report: target/llvm-cov/html/index.html"
+
+# Fail unless line coverage is at least 85%: the same check CI runs
+coverage-check:
+    cargo llvm-cov --workspace --all-features --ignore-filename-regex '{{cov_ignore}}' --fail-under-lines 85
+
 # Clippy with warnings treated as errors
 lint:
     cargo clippy --workspace --all-targets --all-features -- -D warnings
