@@ -923,6 +923,12 @@ kbd {
     };
     let router = router.fallback(not_found);           // Route::fallback
   </script>
+  <h2>API resources and names</h2>
+  <p><code>resource</code> already registers the five API actions (index, store, show, update, destroy). <code>api_resource</code> is an alias that reads like Laravel, and <code>names</code> overrides the route-name prefix; nesting works by putting the parent parameter in the path.</p>
+  <script type="text/plain" class="code" data-lang="rust">
+    api_resource("/photos", Photos, names = "gallery", only = [index, show]);   // gallery.index, gallery.show
+    resource("/posts/{post}/comments", Comments);                              // posts.comments.index ...
+  </script>
 </section>
 
 <section class="page" id="middleware" data-title="Middleware" data-group="The Basics">
