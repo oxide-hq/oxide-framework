@@ -12,6 +12,7 @@ oxide-http.workspace = true
 oxide-config.workspace = true
 oxide-log.workspace = true
 thiserror.workspace = true
+serde_json.workspace = true
 tokio = { workspace = true, features = ["net"] }
 
 [dev-dependencies]

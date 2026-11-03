@@ -12,6 +12,9 @@ use oxide_http::__private::axum::{self, Router};
 use oxide_http::testing::TestClient;
 
 use crate::container::{Bindings, Container, ServiceKey};
+use crate::exceptions::{
+    DefaultExceptionHandler, ExceptionHandler, ExceptionState, exception_middleware,
+};
 use crate::provider::{App, BootError, ServiceProvider};
 
 type Binder = Box<dyn FnOnce(&mut Bindings) + Send>;
@@ -23,6 +26,8 @@ pub struct ApplicationBuilder {
     providers: Vec<Arc<dyn ServiceProvider>>,
     binders: Vec<Binder>,
     routes: Vec<Router>,
+    exceptions: Arc<dyn ExceptionHandler>,
+    debug: bool,
 }
 
 impl fmt::Debug for ApplicationBuilder {
@@ -57,6 +62,20 @@ impl ApplicationBuilder {
     /// Adds routes (for example `router.with_state(ctx).into()` from `routes!`).
     pub fn routes(mut self, router: impl Into<Router>) -> Self {
         self.routes.push(router.into());
+        self
+    }
+
+    /// Replaces the [`ExceptionHandler`] that reports errors and renders error responses.
+    pub fn exception_handler(mut self, handler: impl ExceptionHandler) -> Self {
+        self.exceptions = Arc::new(handler);
+        self
+    }
+
+    /// Shows the exception chain in error responses. It only takes effect when the environment
+    /// is `local` (it needs the configuration to know), so a stray `debug = true` in
+    /// production leaks nothing.
+    pub fn debug(mut self, debug: bool) -> Self {
+        self.debug = debug;
         self
     }
 
@@ -97,6 +116,15 @@ impl ApplicationBuilder {
             return Err(BootError::Unbound(missing));
         }
 
+        let debug = self.debug
+            && self
+                .configuration
+                .as_ref()
+                .is_some_and(|configuration| configuration.environment().is_local());
+        let exceptions = ExceptionState {
+            handler: self.exceptions,
+            debug,
+        };
         let container = Container::new(bindings, deferred);
         let app = App::new(container.clone(), self.configuration);
         for provider in &eager {
@@ -124,6 +152,10 @@ impl ApplicationBuilder {
         // resolving log with the request id.
         let router = router
             .layer(middleware::from_fn_with_state(container, scope_middleware))
+            .layer(middleware::from_fn_with_state(
+                exceptions,
+                exception_middleware,
+            ))
             .layer(middleware::from_fn(oxide_log::context_middleware));
         Ok(Application { app, router })
     }
@@ -154,6 +186,8 @@ impl Application {
             providers: Vec::new(),
             binders: Vec::new(),
             routes: Vec::new(),
+            exceptions: Arc::new(DefaultExceptionHandler::default()),
+            debug: false,
         }
     }
 

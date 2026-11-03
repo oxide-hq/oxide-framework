@@ -525,7 +525,7 @@ kbd {
     <tbody>
       <tr><td><code>oxide</code></td><td>The crate your app depends on. Re-exports <code>oxide::config</code>, <code>oxide::http</code> and <code>oxide::orm</code> and gathers everything into <code>oxide::prelude</code>.</td></tr>
       <tr><td><code>oxide-log</code></td><td>Logging: channels on <code>tracing</code>, the request <code>Context</code> and request-id middleware.</td></tr>
-      <tr><td><code>oxide-foundation</code></td><td>The <code>Application</code> builder, <code>ServiceProvider</code>s and the typed container with singleton, scoped and transient bindings.</td></tr>
+      <tr><td><code>oxide-foundation</code></td><td>The <code>Application</code> builder, <code>ServiceProvider</code>s, the typed container with singleton, scoped and transient bindings, and the <code>ExceptionHandler</code>.</td></tr>
       <tr><td><code>oxide-config</code>, <code>oxide-config-macros</code></td><td>Typed configuration: <code>#[derive(Config)]</code>, <code>config/*.toml</code>, <code>.env</code> files, environments and boot-time validation.</td></tr>
       <tr><td><code>oxide</code></td><td>The crate your app depends on. Re-exports <code>oxide::http</code>, <code>oxide::orm</code> and <code>oxide::support</code> and gathers everything into <code>oxide::prelude</code>.</td></tr>
       <tr><td><code>oxide-support</code></td><td>Helpers: <code>CollectionExt</code>, <code>Str</code>, <code>Arr</code>, <code>Number</code>, relative dates, <code>Pipeline</code>, <code>Benchmark</code>, <code>Lottery</code> and <code>retry</code>.</td></tr>
@@ -1422,6 +1422,55 @@ kbd {
         Ok(Json(Post::find_or_fail(&db, id).await?)) // 404 if missing, 500 if the database fails
     }
   </script>
+
+  <h2>Keeping the cause: <code>OxideHttpError::server</code></h2>
+  <p><code>OxideHttpError::server(error)</code> answers <code>{"message": "Server Error"}</code> but keeps the real error attached for reporting. <code>OrmError</code> uses it, so a database failure is logged with its SQL error and still tells the client nothing.</p>
+
+  <h2>Your own errors: <code>DomainError</code></h2>
+  <p>Implement <code>DomainError</code> on an application error to choose its status and client message, then add a one-line <code>From</code> so <code>?</code> works:</p>
+  <script type="text/plain" data-lang="rust">
+    #[derive(Debug, thiserror::Error)]
+    #[error("card declined for order {0}")]
+    struct PaymentFailed(u32);
+
+    impl DomainError for PaymentFailed {
+        fn status(&self) -> StatusCode { StatusCode::PAYMENT_REQUIRED }
+        fn message(&self) -> String { "Your card was declined.".into() }   // what the client reads
+    }
+
+    impl From<PaymentFailed> for OxideHttpError {
+        fn from(error: PaymentFailed) -> Self { OxideHttpError::domain(error) }
+    }
+  </script>
+  <p>The error's own <code>Display</code> (above, with the order number) stays in your logs. <code>report()</code> decides whether it is logged; the default is server errors only.</p>
+
+  <h2>The exception handler</h2>
+  <p>An <code>Application</code> sends every error response through an <code>ExceptionHandler</code>, the Oxide version of Laravel's exception handler. The default handler <strong>reports</strong> server errors (one <code>error</code> log line with the cause chain, the request, and the request id from the <a href="#/logging">log context</a>) and never 4xx errors, and it <strong>renders</strong> JSON for API clients and a small HTML page for browsers, chosen from the <code>Accept</code> header. Both hooks are replaceable:</p>
+  <script type="text/plain" data-lang="rust">
+    struct MyHandler;
+
+    impl ExceptionHandler for MyHandler {
+        fn report(&self, error: &OxideHttpError, context: &ErrorContext<'_>) {
+            sentry_capture(error);                       // add your own reporter...
+            default_report(error, context);              // ...and keep the standard log line
+        }
+
+        fn render(&self, error: &OxideHttpError, context: &ErrorContext<'_>, response: Response) -> Response {
+            if error.status() == StatusCode::NOT_FOUND {
+                return my_not_found_page();
+            }
+            default_render(error, context, response)
+        }
+    }
+
+    Application::builder()
+        .exception_handler(MyHandler)
+        // or: .exception_handler(DefaultExceptionHandler::new().dont_report(StatusCode::SERVICE_UNAVAILABLE))
+        .debug(app_config.debug)
+  </script>
+  <div class="callout warning">
+    <p><code>.debug(true)</code> adds the exception chain to JSON and HTML responses, but only when the environment is <code>local</code>. In staging or production, or when no configuration was supplied, it does nothing, so a stray debug flag can't leak internals.</p>
+  </div>
 </section>
 
 <section class="page" id="console" data-title="Artisan Console" data-group="The Basics">

@@ -27,7 +27,7 @@ pub mod testing;
 
 pub use binding::{Bind, RouteBindable};
 pub use container::{ServiceContainer, facade_middleware};
-pub use error::{OxideHttpError, OxideResult};
+pub use error::{DomainError, HandledError, OxideHttpError, OxideResult};
 pub use oxide_http_macros::*;
 pub use request::{Authorize, FormRequest, Validated};
 pub use routing::{OxideRouter, RouteMetadata, RouteRegistry, UrlGenerator, url_for};
@@ -44,7 +44,7 @@ pub mod __private {
 pub mod prelude {
     pub use crate::binding::{Bind, RouteBindable};
     pub use crate::container::{ServiceContainer, facade_middleware};
-    pub use crate::error::{OxideHttpError, OxideResult};
+    pub use crate::error::{DomainError, OxideHttpError, OxideResult};
     pub use crate::request::{Authorize, FormRequest, Validated};
     pub use crate::route;
     pub use crate::routing::{OxideRouter, UrlGenerator, url_for};

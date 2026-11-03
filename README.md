@@ -53,7 +53,7 @@ comparisons throughout. Its source is [`docs/index.html`](docs/index.html), depl
 | Route-model binding     | `Bind<Post>` — automatic for `Model`s, or `impl RouteBindable` by hand        |
 | Routes & resources      | `routes! { prefix(..) { resource("/posts", PostController); } }`              |
 | Named routes / `route()`| `route!("posts.show", post = 42)` → `/api/v1/posts/42`                        |
-| Error responses         | `OxideHttpError` → Laravel-shaped JSON for 400 / 403 / 404 / 422 / 500        |
+| Error responses         | `OxideHttpError` → Laravel-shaped JSON for 400 / 403 / 404 / 422 / 500; `ExceptionHandler` reports and renders (HTML for browsers), `DomainError` for your own |
 | HTTP tests              | `TestClient` with chainable `assert_*` methods                                |
 
 ## Example

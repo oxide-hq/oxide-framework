@@ -39,7 +39,9 @@ pub use oxide_support as support;
 pub use axum;
 
 pub use oxide_config::{Config, ConfigErrors, ConfigSection, Configuration, Environment};
-pub use oxide_foundation::{Application, Bindings, BootError, Inject, ServiceProvider};
+pub use oxide_foundation::{
+    Application, Bindings, BootError, ExceptionHandler, Inject, ServiceProvider,
+};
 pub use oxide_http::{
     Authorize, Bind, FormRequest, OxideHttpError, OxideResult, OxideRouter, RouteBindable,
     ServiceContainer, UrlGenerator, Validated, facade_middleware, route, routes, url_for,
@@ -53,7 +55,9 @@ pub mod prelude {
     pub use axum::Json;
     pub use axum::http::StatusCode;
     pub use oxide_config::prelude::*;
-    pub use oxide_foundation::{Application, Bindings, BootError, Inject, ServiceProvider};
+    pub use oxide_foundation::{
+        Application, Bindings, BootError, ExceptionHandler, Inject, ServiceProvider,
+    };
     pub use oxide_http::prelude::*;
     pub use oxide_log::prelude::*;
     pub use oxide_orm::prelude::*;

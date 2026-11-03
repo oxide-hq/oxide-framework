@@ -37,7 +37,9 @@ impl From<OrmError> for OxideHttpError {
     fn from(error: OrmError) -> Self {
         match error {
             OrmError::NotFound { .. } => Self::NotFound(error.to_string()),
-            OrmError::Database(_) | OrmError::Migrate(_) => Self::Internal("Server Error".into()),
+            // The client sees "Server Error"; the real cause stays attached for the exception
+            // handler to report.
+            OrmError::Database(_) | OrmError::Migrate(_) => Self::server(error),
         }
     }
 }
@@ -45,5 +47,24 @@ impl From<OrmError> for OxideHttpError {
 impl IntoResponse for OrmError {
     fn into_response(self) -> Response {
         OxideHttpError::from(self).into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::error::Error as _;
+
+    use super::*;
+
+    #[test]
+    fn database_failures_keep_their_cause_but_tell_the_client_nothing() {
+        let error = OxideHttpError::from(OrmError::Database(sqlx::Error::PoolClosed));
+        assert_eq!(
+            error.body(),
+            serde_json::json!({ "message": "Server Error" })
+        );
+        assert!(matches!(error, OxideHttpError::Server { .. }));
+        let cause = error.source().expect("the cause is attached");
+        assert!(cause.to_string().contains("pool"), "{cause}");
     }
 }

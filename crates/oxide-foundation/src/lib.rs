@@ -32,10 +32,15 @@
 
 mod application;
 mod container;
+mod exceptions;
 mod provider;
 
 pub use application::{Application, ApplicationBuilder};
 pub use container::{Bindings, Container, Inject, ResolveError, Scope, ServiceKey};
+pub use exceptions::{
+    DefaultExceptionHandler, ErrorContext, ExceptionHandler, RequestInfo, default_render,
+    default_report, default_should_report,
+};
 pub use provider::{App, BootError, BootFuture, ServiceProvider};
 
 /// `use oxide_foundation::prelude::*;`
