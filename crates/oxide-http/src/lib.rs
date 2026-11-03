@@ -24,6 +24,7 @@ pub mod error;
 pub mod input;
 pub mod request;
 pub mod request_ext;
+pub mod response;
 pub mod routing;
 pub mod testing;
 
@@ -34,6 +35,7 @@ pub use input::Input;
 pub use oxide_http_macros::*;
 pub use request::{Authorize, FormRequest, Validated};
 pub use request_ext::{RequestExt, negotiate};
+pub use response::{Cookie, Responsable, ResponseExt};
 pub use routing::{OxideRouter, RouteMetadata, RouteRegistry, UrlGenerator, url_for};
 
 /// Re-exports used by generated code. Not public API.
@@ -52,6 +54,7 @@ pub mod prelude {
     pub use crate::input::Input;
     pub use crate::request::{Authorize, FormRequest, Validated};
     pub use crate::request_ext::RequestExt;
+    pub use crate::response::{self, Cookie, Responsable, ResponseExt};
     pub use crate::route;
     pub use crate::routing::{OxideRouter, UrlGenerator, url_for};
     pub use crate::testing::{TestClient, TestResponse};
