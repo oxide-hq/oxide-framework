@@ -25,6 +25,13 @@ pub enum BootError {
         provider: &'static str,
         message: String,
     },
+    /// A provider's `boot` returned another kind of error (such as a failed resolve); this names
+    /// the provider that raised it.
+    #[error("provider `{provider}` failed to boot: {source}")]
+    Booting {
+        provider: &'static str,
+        source: Box<BootError>,
+    },
     #[error(transparent)]
     Resolve(#[from] ResolveError),
     #[error(transparent)]
@@ -100,7 +107,8 @@ pub trait ServiceProvider: Send + Sync + 'static {
         std::any::type_name::<Self>()
     }
 
-    /// Binds services. Only bind here: other services may not be registered yet.
+    /// Binds services. Only bind here: other services may not be registered yet, and a deferred
+    /// provider's `register` runs while the container is locked, so it must not resolve anything.
     fn register(&self, _bindings: &mut Bindings) {}
 
     /// Start-up work that needs other services: warm a cache, check a connection, read config.

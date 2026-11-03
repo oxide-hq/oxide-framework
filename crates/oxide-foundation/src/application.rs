@@ -100,7 +100,15 @@ impl ApplicationBuilder {
         let container = Container::new(bindings, deferred);
         let app = App::new(container.clone(), self.configuration);
         for provider in &eager {
-            provider.boot(&app).await?;
+            if let Err(error) = provider.boot(&app).await {
+                return Err(match error {
+                    BootError::Provider { .. } | BootError::Booting { .. } => error,
+                    other => BootError::Booting {
+                        provider: provider.name(),
+                        source: Box::new(other),
+                    },
+                });
+            }
         }
 
         let mut router = Router::new();

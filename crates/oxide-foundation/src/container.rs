@@ -92,7 +92,8 @@ impl ServiceKey {
 }
 
 struct SingletonCell {
-    value: Mutex<Option<Holder>>,
+    /// Read on every resolve, written once: a read lock keeps the hot path concurrent.
+    value: RwLock<Option<Holder>>,
     factory: Option<Factory>,
 }
 
@@ -134,7 +135,7 @@ impl Bindings {
     /// Binds one shared instance of `T`, which may be a trait object: pass `Arc<dyn Trait>`.
     pub fn singleton_arc<T: ?Sized + Send + Sync + 'static>(&mut self, value: Arc<T>) -> &mut Self {
         self.insert::<T>(Kind::Singleton(Arc::new(SingletonCell {
-            value: Mutex::new(Some(holder(value))),
+            value: RwLock::new(Some(holder(value))),
             factory: None,
         })))
     }
@@ -147,7 +148,7 @@ impl Bindings {
         F: Fn(&Scope) -> Result<Arc<T>, ResolveError> + Send + Sync + 'static,
     {
         self.insert::<T>(Kind::Singleton(Arc::new(SingletonCell {
-            value: Mutex::new(None),
+            value: RwLock::new(None),
             factory: Some(wrap(factory)),
         })))
     }
@@ -269,27 +270,43 @@ impl Container {
         if let Some(entry) = find() {
             return Ok(entry);
         }
-        let provider = {
-            let mut deferred = self
-                .inner
-                .deferred
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner);
-            let Some(provider) = deferred.get(&id).cloned() else {
-                return Err(ResolveError::Unbound(name));
-            };
-            // The provider registers everything it provides at once.
-            deferred.retain(|_, other| !Arc::ptr_eq(other, &provider));
-            provider
+        // Registration happens under the deferred lock, so a concurrent resolve of the same
+        // service waits for it and then finds the binding instead of seeing neither.
+        let mut deferred = self
+            .inner
+            .deferred
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if let Some(entry) = find() {
+            return Ok(entry);
+        }
+        let Some(provider) = deferred.get(&id).cloned() else {
+            return Err(ResolveError::Unbound(name));
         };
         let mut late = Bindings::default();
         provider.register(&mut late);
-        self.inner
+
+        let mut entries = self
+            .inner
             .entries
             .write()
-            .unwrap_or_else(PoisonError::into_inner)
-            .extend(late.entries);
-        find().ok_or(ResolveError::Unbound(name))
+            .unwrap_or_else(PoisonError::into_inner);
+        // A `require` made by the deferred provider fails the resolve that triggered it, and the
+        // provider stays deferred so the problem is reported again, not forgotten.
+        if let Some(missing) = late.required.iter().find(|key| {
+            !late.entries.contains_key(&key.id)
+                && !entries.contains_key(&key.id)
+                && !deferred.contains_key(&key.id)
+        }) {
+            return Err(ResolveError::Unbound(missing.name));
+        }
+        // The provider registers everything it provides at once, and never replaces a binding
+        // that already exists: applications override a package's defaults, not the reverse.
+        deferred.retain(|_, other| !Arc::ptr_eq(other, &provider));
+        for (key, kind) in late.entries {
+            entries.entry(key).or_insert(kind);
+        }
+        entries.get(&id).cloned().ok_or(ResolveError::Unbound(name))
     }
 }
 
@@ -378,7 +395,15 @@ impl Scope {
         let kind = self.inner.container.lookup(key.id, key.name)?;
         match kind {
             Kind::Singleton(cell) => {
-                let mut slot = cell.value.lock().unwrap_or_else(PoisonError::into_inner);
+                if let Some(held) = cell
+                    .value
+                    .read()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .as_ref()
+                {
+                    return Ok(Arc::clone(held));
+                }
+                let mut slot = cell.value.write().unwrap_or_else(PoisonError::into_inner);
                 if let Some(held) = slot.as_ref() {
                     return Ok(Arc::clone(held));
                 }
@@ -386,7 +411,9 @@ impl Scope {
                     .factory
                     .as_ref()
                     .ok_or(ResolveError::Unbound(key.name))?;
-                let held = factory(self)?;
+                // A singleton outlives every request, so it is built in the root scope: asking
+                // for a scoped service there is an error instead of caching one request's data.
+                let held = factory(&Scope::root(self.inner.container.clone()))?;
                 *slot = Some(Arc::clone(&held));
                 Ok(held)
             }
@@ -405,13 +432,14 @@ impl Scope {
                 if let Some(held) = cached {
                     return Ok(held);
                 }
-                let held = factory(self)?;
-                self.inner
+                let built = factory(self)?;
+                // If a concurrent resolve built one first, use that, so the request has one.
+                let mut cache = self
+                    .inner
                     .cache
                     .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .insert(key.id, Arc::clone(&held));
-                Ok(held)
+                    .unwrap_or_else(PoisonError::into_inner);
+                Ok(Arc::clone(cache.entry(key.id).or_insert(built)))
             }
         }
     }

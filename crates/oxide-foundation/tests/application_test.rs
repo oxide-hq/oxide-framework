@@ -459,7 +459,11 @@ async fn providers_read_configuration_and_missing_pieces_are_errors() {
         .build()
         .await
         .unwrap_err();
-    assert!(matches!(error, BootError::Config(_)), "{error}");
+    assert!(
+        matches!(&error, BootError::Booting { source, .. } if matches!(**source, BootError::Config(_))),
+        "{error}"
+    );
+    assert!(error.to_string().contains("ReadsConfig"), "{error}");
 
     // No configuration at all is reported too.
     let error = Application::builder()
@@ -504,4 +508,184 @@ fn debug_output_is_useful_and_cheap() {
     bindings.singleton(1_u8);
     assert!(format!("{bindings:?}").contains("bound: 1"));
     assert!(format!("{:?}", ServiceKey::of::<u8>()).contains("u8"));
+}
+
+// ---- review regressions
+#[tokio::test]
+async fn singletons_are_built_outside_any_request_scope() {
+    let app = Application::builder()
+        .bind(|bindings| {
+            bindings.scoped(|_| Ok(Arc::new(RequestId(5))));
+            // A singleton that depends on a request-scoped service would cache one request's data.
+            bindings.lazy::<String, _>(|scope| {
+                scope
+                    .resolve::<RequestId>()
+                    .map(|id| Arc::new(format!("user {}", id.0)))
+            });
+        })
+        .build()
+        .await
+        .unwrap();
+    let scope = app.container().scope();
+    assert!(matches!(
+        scope.resolve::<String>(),
+        Err(ResolveError::ScopedOutsideRequest(_))
+    ));
+}
+
+#[tokio::test]
+async fn a_failing_resolve_in_boot_names_the_provider() {
+    struct NeedsMissing;
+
+    impl ServiceProvider for NeedsMissing {
+        fn name(&self) -> &'static str {
+            "needs-missing"
+        }
+
+        fn boot<'a>(&'a self, app: &'a App) -> BootFuture<'a> {
+            Box::pin(async move {
+                app.resolve::<i64>()?;
+                Ok(())
+            })
+        }
+    }
+    let error = Application::builder()
+        .provider(NeedsMissing)
+        .build()
+        .await
+        .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("provider `needs-missing` failed to boot"),
+        "{error}"
+    );
+    assert!(error.to_string().contains("no binding"), "{error}");
+}
+
+struct SlowDeferred;
+
+impl ServiceProvider for SlowDeferred {
+    fn register(&self, bindings: &mut Bindings) {
+        std::thread::sleep(std::time::Duration::from_millis(40));
+        bindings.singleton(7_u64);
+        // Bound by the provider but not listed in `provides`.
+        bindings.singleton(1_u8);
+    }
+
+    fn provides(&self) -> Vec<ServiceKey> {
+        vec![ServiceKey::of::<u64>()]
+    }
+}
+
+#[tokio::test]
+async fn concurrent_first_resolves_of_a_deferred_service_all_succeed() {
+    let app = Application::builder()
+        .provider(SlowDeferred)
+        .build()
+        .await
+        .unwrap();
+    let container = app.container().clone();
+    let threads: Vec<_> = (0..8)
+        .map(|_| {
+            let container = container.clone();
+            std::thread::spawn(move || container.resolve::<u64>().map(|n| *n))
+        })
+        .collect();
+    for thread in threads {
+        assert_eq!(thread.join().unwrap().unwrap(), 7);
+    }
+}
+
+#[tokio::test]
+async fn a_deferred_provider_never_replaces_an_application_override() {
+    let app = Application::builder()
+        .provider(SlowDeferred)
+        .bind(|bindings| {
+            bindings.singleton(9_u8);
+        })
+        .build()
+        .await
+        .unwrap();
+    assert_eq!(*app.container().resolve::<u64>().unwrap(), 7);
+    assert_eq!(*app.container().resolve::<u8>().unwrap(), 9);
+}
+
+#[tokio::test]
+async fn a_deferred_providers_unmet_requirement_fails_its_first_resolve() {
+    struct DeferredNeedsMailer;
+
+    impl ServiceProvider for DeferredNeedsMailer {
+        fn register(&self, bindings: &mut Bindings) {
+            bindings.require::<dyn Mailer>();
+            bindings.singleton(3_u32);
+        }
+
+        fn provides(&self) -> Vec<ServiceKey> {
+            vec![ServiceKey::of::<u32>()]
+        }
+    }
+    let app = Application::builder()
+        .provider(DeferredNeedsMailer)
+        .build()
+        .await
+        .unwrap();
+    for _ in 0..2 {
+        let error = app.container().resolve::<u32>().unwrap_err();
+        assert!(error.to_string().contains("Mailer"), "{error}");
+    }
+    // Once the requirement is met the provider registers normally.
+    let app = Application::builder()
+        .provider(DeferredNeedsMailer)
+        .bind(|bindings| {
+            bindings.singleton_arc::<dyn Mailer>(Arc::new(LogMailer));
+        })
+        .build()
+        .await
+        .unwrap();
+    assert_eq!(*app.container().resolve::<u32>().unwrap(), 3);
+}
+
+#[tokio::test]
+async fn concurrent_resolves_share_one_scoped_instance_and_one_singleton() {
+    let singleton_builds = Arc::new(AtomicU32::new(0));
+    let counted = Arc::clone(&singleton_builds);
+    let app = Application::builder()
+        .bind(move |bindings| {
+            bindings.scoped(|_| {
+                std::thread::sleep(std::time::Duration::from_millis(30));
+                Ok(Arc::new(RequestId(NEXT_ID.fetch_add(1, Ordering::SeqCst))))
+            });
+            bindings.lazy(move |_| {
+                counted.fetch_add(1, Ordering::SeqCst);
+                std::thread::sleep(std::time::Duration::from_millis(30));
+                Ok(Arc::new(String::from("pool")))
+            });
+        })
+        .build()
+        .await
+        .unwrap();
+    let scope = app.container().scope();
+    let threads: Vec<_> = (0..6)
+        .map(|_| {
+            let scope = scope.clone();
+            std::thread::spawn(move || {
+                (
+                    scope.resolve::<RequestId>().unwrap(),
+                    scope.resolve::<String>().unwrap(),
+                )
+            })
+        })
+        .collect();
+    let results: Vec<_> = threads
+        .into_iter()
+        .map(|thread| thread.join().unwrap())
+        .collect();
+    assert!(results.iter().all(|(id, _)| Arc::ptr_eq(id, &results[0].0)));
+    assert!(
+        results
+            .iter()
+            .all(|(_, pool)| Arc::ptr_eq(pool, &results[0].1))
+    );
+    assert_eq!(singleton_builds.load(Ordering::SeqCst), 1);
 }
