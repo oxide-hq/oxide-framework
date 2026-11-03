@@ -397,3 +397,102 @@ fn debug_output_names_the_remaining_chain() {
     );
     assert!(format!("{closure:?}").contains("FnMiddleware"));
 }
+
+/// Stops every request with a 403, like a failed authorization check.
+struct Gate;
+
+impl Middleware for Gate {
+    fn handle<'a>(
+        &'a self,
+        _request: Request,
+        _next: MwNext,
+        _params: &'a [String],
+    ) -> MiddlewareFuture<'a> {
+        Box::pin(async { OxideHttpError::Forbidden("No.".into()).into_response() })
+    }
+}
+
+#[tokio::test]
+async fn terminate_only_runs_for_middleware_the_request_reached() {
+    let outcomes: Arc<Mutex<Vec<Outcome>>> = Arc::default();
+    let app = Application::builder()
+        // `gate` stops the request before the later auditor ever sees it.
+        .middleware(Gate)
+        .middleware(Auditor {
+            outcomes: Arc::clone(&outcomes),
+        })
+        .routes(Router::new().route("/hello", get(hello)))
+        .build()
+        .await
+        .unwrap();
+    assert_eq!(
+        app.test_client()
+            .get("/hello")
+            .send()
+            .await
+            .status()
+            .as_u16(),
+        403
+    );
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    assert!(
+        outcomes.lock().unwrap().is_empty(),
+        "the auditor never handled this request"
+    );
+
+    // An auditor ahead of the gate did handle it, so it is told how it ended.
+    let app = Application::builder()
+        .middleware(Auditor {
+            outcomes: Arc::clone(&outcomes),
+        })
+        .middleware(Gate)
+        .routes(Router::new().route("/hello", get(hello)))
+        .build()
+        .await
+        .unwrap();
+    app.test_client().get("/hello").send().await;
+    for _ in 0..100 {
+        if !outcomes.lock().unwrap().is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(outcomes.lock().unwrap().len(), 1);
+    assert_eq!(outcomes.lock().unwrap()[0].status.as_u16(), 403);
+}
+
+#[tokio::test]
+async fn a_trailing_colon_means_no_parameters_and_routes_resolve_once_per_app() {
+    let log: Log = Arc::default();
+    let routes = Router::new()
+        .route("/x", get(hello))
+        .layer(route_middleware(&["tag:", "tag: a , ,b"]));
+    // The same routes under two applications each resolve against their own registry.
+    for _ in 0..2 {
+        log.lock().unwrap().clear();
+        let app = Application::builder()
+            .alias("tag", Recorder::new("tag", &log))
+            .routes(routes.clone())
+            .build()
+            .await
+            .unwrap();
+        let client = app.test_client();
+        for _ in 0..2 {
+            client.get("/x").send().await.assert_ok();
+        }
+        let before: Vec<String> = entries(&log)
+            .into_iter()
+            .filter(|e| e.ends_with("before"))
+            .collect();
+        assert_eq!(
+            before,
+            [
+                "tag before",
+                "tag(a+b) before",
+                "tag before",
+                "tag(a+b) before"
+            ],
+            "an empty list is no parameters; stray commas and spaces are dropped"
+        );
+    }
+}

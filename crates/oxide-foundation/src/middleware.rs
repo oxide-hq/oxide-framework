@@ -25,7 +25,8 @@ use std::collections::HashMap;
 use std::convert::Infallible;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, PoisonError, RwLock};
 
 use oxide_http::__private::axum::extract::{Request, State};
 use oxide_http::__private::axum::http::{HeaderMap, Method, StatusCode};
@@ -90,6 +91,9 @@ pub struct MwNext {
     chain: Arc<Vec<Resolved>>,
     index: usize,
     inner: Next,
+    /// How many steps have been entered so far, shared by the whole run: only those get
+    /// `terminate`.
+    reached: Arc<AtomicUsize>,
 }
 
 impl std::fmt::Debug for MwNext {
@@ -109,10 +113,12 @@ impl MwNext {
             .map(|step| (Arc::clone(&step.middleware), Arc::clone(&step.params)));
         match step {
             Some((middleware, params)) => {
+                self.reached.fetch_max(self.index + 1, Ordering::SeqCst);
                 let next = Self {
                     chain: self.chain,
                     index: self.index + 1,
                     inner: self.inner,
+                    reached: self.reached,
                 };
                 middleware.handle(request, next, &params).await
             }
@@ -222,6 +228,7 @@ impl MiddlewareRegistry {
                     params
                         .split(',')
                         .map(str::trim)
+                        .filter(|param| !param.is_empty())
                         .map(str::to_owned)
                         .collect(),
                 ),
@@ -260,21 +267,35 @@ fn sorted(mut chain: Vec<Resolved>) -> Vec<Resolved> {
 
 /// Runs `chain` around `inner`, then hands terminable middleware their [`Outcome`].
 async fn run_chain(chain: Arc<Vec<Resolved>>, request: Request, inner: Next) -> Response {
-    let terminable: Vec<Arc<dyn Middleware>> = chain
+    let terminable: Vec<(usize, Arc<dyn Middleware>)> = chain
         .iter()
-        .filter(|step| step.middleware.terminable())
-        .map(|step| Arc::clone(&step.middleware))
+        .enumerate()
+        .filter(|(_, step)| step.middleware.terminable())
+        .map(|(index, step)| (index, Arc::clone(&step.middleware)))
         .collect();
     let started = (!terminable.is_empty())
         .then(|| (request.method().clone(), request.uri().path().to_owned()));
+    let reached = Arc::new(AtomicUsize::new(0));
     let response = MwNext {
         chain,
         index: 0,
         inner,
+        reached: Arc::clone(&reached),
     }
     .run(request)
     .await;
     if let Some((method, path)) = started {
+        // Only middleware the request actually reached are told how it ended: one that an
+        // earlier middleware cut off never saw it.
+        let reached = reached.load(Ordering::SeqCst);
+        let terminable: Vec<Arc<dyn Middleware>> = terminable
+            .into_iter()
+            .filter(|(index, _)| *index < reached)
+            .map(|(_, middleware)| middleware)
+            .collect();
+        if terminable.is_empty() {
+            return response;
+        }
         let outcome = Outcome {
             method,
             path,
@@ -292,7 +313,7 @@ async fn run_chain(chain: Arc<Vec<Resolved>>, request: Request, inner: Next) -> 
 
 fn misconfigured(reason: &str) -> Response {
     // The detail is for the developer; the client only learns the request failed.
-    eprintln!("oxide-foundation: middleware: {reason}");
+    oxide_log::tracing::error!("middleware misconfigured: {reason}");
     OxideHttpError::Internal("Server Error".to_owned()).into_response()
 }
 
@@ -315,10 +336,33 @@ pub(crate) async fn global_middleware(
     run_chain(Arc::clone(&registry.globals), request, next).await
 }
 
-#[derive(Clone)]
 struct RouteSpec {
     names: Vec<String>,
     without: Vec<String>,
+    /// The resolved chain and the registry (by address) it was resolved against, so the names
+    /// are expanded once rather than on every request.
+    resolved: RwLock<Option<(usize, Arc<Vec<Resolved>>)>>,
+}
+
+impl RouteSpec {
+    fn chain(&self, registry: &Arc<MiddlewareRegistry>) -> Result<Arc<Vec<Resolved>>, String> {
+        let registry_id = Arc::as_ptr(registry) as usize;
+        if let Some((id, chain)) = self
+            .resolved
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            && *id == registry_id
+        {
+            return Ok(Arc::clone(chain));
+        }
+        let chain = registry.resolve(&self.names, &self.without)?;
+        *self
+            .resolved
+            .write()
+            .unwrap_or_else(PoisonError::into_inner) = Some((registry_id, Arc::clone(&chain)));
+        Ok(chain)
+    }
 }
 
 async fn route_middleware_handler(
@@ -335,7 +379,7 @@ async fn route_middleware_handler(
             "route middleware needs an `Application` (no registry on the request)",
         );
     };
-    match registry.resolve(&spec.names, &spec.without) {
+    match spec.chain(&registry) {
         Ok(chain) => run_chain(chain, request, next).await,
         Err(reason) => misconfigured(&reason),
     }
@@ -390,6 +434,7 @@ pub fn route_middleware_without(
     let spec = Arc::new(RouteSpec {
         names: names.iter().map(|name| (*name).to_owned()).collect(),
         without: without.iter().map(|name| (*name).to_owned()).collect(),
+        resolved: RwLock::new(None),
     });
     middleware::from_fn_with_state(spec, route_middleware_handler)
 }

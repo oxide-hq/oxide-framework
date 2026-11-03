@@ -472,7 +472,7 @@ where
     ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
         // What went wrong is for the developer (stderr), not for the client in the response body.
         let server_error = |reason: String| {
-            eprintln!("oxide-foundation: {reason}");
+            oxide_log::tracing::error!("{reason}");
             OxideHttpError::Internal("Server Error".to_owned())
         };
         let resolved = match parts.extensions.get::<Scope>() {
