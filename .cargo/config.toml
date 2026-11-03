@@ -1,0 +1,10 @@
+# Fast linking on Linux via mold (https://github.com/rui314/mold).
+# Remove this block if `clang`/`mold` are not installed on your machine.
+[target.x86_64-unknown-linux-gnu]
+linker = "clang"
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+
+[alias]
+t = "test --workspace"
+lint = "clippy --workspace --all-targets -- -D warnings"
+expand-http = "expand -p oxide-http"

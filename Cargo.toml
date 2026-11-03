@@ -1,0 +1,51 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+# Internal crates
+oxide-http = { path = "crates/oxide-http", version = "0.1.0" }
+oxide-http-macros = { path = "crates/oxide-http-macros", version = "0.1.0" }
+
+# HTTP runtime
+axum = "0.8"
+tokio = { version = "1", features = ["full"] }
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+
+# Serialization & validation
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_urlencoded = "0.7"
+validator = { version = "0.20", features = ["derive"] }
+thiserror = "2"
+
+# Proc-macro tooling
+syn = { version = "2", features = ["full"] }
+quote = "1"
+proc-macro2 = "1"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+must_use_candidate = "allow"
+
+[profile.dev]
+# Faster incremental builds; keep full debuginfo only for our own crates.
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
