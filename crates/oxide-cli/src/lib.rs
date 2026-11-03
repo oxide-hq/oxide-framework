@@ -4,7 +4,7 @@
 //!
 //! - `oxide new <name>` scaffolds a ready-to-run application, through a guided wizard in a
 //!   terminal or from flags (`--no-interaction`) in scripts and CI;
-//! - `oxide make:model`, `make:controller` and `make:request` generate files inside an
+//! - `oxide make:model`, `make:controller`, `make:request` and `make:middleware` generate files inside an
 //!   application and register them in the parent `mod.rs`.
 
 mod cli;
@@ -15,8 +15,8 @@ pub mod new;
 mod templates;
 
 pub use cli::{
-    Cli, Command, Database, MakeControllerArgs, MakeModelArgs, MakeRequestArgs, NewArgs, Preset,
-    Starter,
+    Cli, Command, Database, MakeControllerArgs, MakeMiddlewareArgs, MakeModelArgs, MakeRequestArgs,
+    NewArgs, Preset, Starter,
 };
 pub use error::CliError;
 
@@ -27,5 +27,6 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
         Command::MakeModel(args) => make::run_model(&args),
         Command::MakeController(args) => make::run_controller(&args),
         Command::MakeRequest(args) => make::run_request(&args),
+        Command::MakeMiddleware(args) => make::run_middleware(&args),
     }
 }

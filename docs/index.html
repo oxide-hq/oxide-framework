@@ -660,6 +660,7 @@ kbd {
     │   ├── models/                # #[derive(Model)] structs
     │   ├── http/
     │   │   ├── controllers/       # resource controllers
+    │   │   ├── middleware/        # your Middleware (oxide make:middleware)
     │   │   └── requests/          # FormRequest structs
     │   └── routes/
     │       └── api.rs             # the routes! table
@@ -965,6 +966,9 @@ kbd {
 
   <h2>Order and priority</h2>
   <p>Middleware runs in the order you list it, outermost first. When one must always run before the others, override <code>priority()</code>: a higher number runs earlier, equal priorities keep their listed order, and it applies to global stacks and to each <code>route_middleware</code> list alike.</p>
+
+  <h2>Generating middleware</h2>
+  <p><code>oxide make:middleware EnsureRole</code> creates <code>src/http/middleware/ensure_role.rs</code> with a struct that implements <code>Middleware</code> and passes the request straight on, registers the module, and tells you in a comment how to register it. In an app from <code>oxide new</code>, <code>build_app</code> in <code>src/lib.rs</code> is the one place to add <code>.middleware(EnsureRole)</code> or <code>.alias("ensure_role", EnsureRole)</code>; it already goes through <code>Application</code>, so every request has an id, a log context and the exception handler.</p>
 
   <h2>Built-in middleware</h2>
   <p>Each of these is an ordinary <code>Middleware</code>, registered globally with <code>.middleware(..)</code> or by name with <code>.alias(..)</code>.</p>
@@ -1587,6 +1591,7 @@ kbd {
       <tr><td><code>make:model Comment -m</code></td><td>also <code>database/migrations/NNNN_create_comments_table.sql</code>, in your database's dialect</td><td>nothing: <code>boot()</code> picks it up</td></tr>
       <tr><td><code>make:controller Comment</code></td><td><code>src/http/controllers/comment_controller.rs</code></td><td><code>pub mod comment_controller;</code></td></tr>
       <tr><td><code>make:controller Comment --resource</code></td><td>the same, with the five resource actions answering <code>501 Not Implemented</code> until you fill them in</td><td>the same</td></tr>
+      <tr><td><code>make:middleware EnsureRole</code></td><td><code>src/http/middleware/ensure_role.rs</code>, with a ready-to-register <code>Middleware</code> and the alias to use it by</td><td><code>pub mod ensure_role;</code> (and the <code>middleware</code> module itself in apps that predate the command)</td></tr>
       <tr><td><code>make:request StoreCommentRequest</code></td><td><code>src/http/requests/store_comment_request.rs</code></td><td><code>pub mod store_comment_request;</code></td></tr>
     </tbody>
   </table>

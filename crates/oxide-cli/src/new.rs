@@ -409,6 +409,10 @@ fn files(options: &NewOptions) -> Vec<(String, String)> {
         (".gitignore".to_owned(), r(templates::GITIGNORE)),
         ("README.md".to_owned(), r(templates::README)),
         ("src/http/mod.rs".to_owned(), r(templates::HTTP_MOD)),
+        (
+            "src/http/middleware/mod.rs".to_owned(),
+            templates::MIDDLEWARE_MOD.to_owned(),
+        ),
         ("src/routes/mod.rs".to_owned(), r(templates::ROUTES_MOD)),
     ];
     let mut add = |path: &str, contents: String| files.push((path.to_owned(), contents));

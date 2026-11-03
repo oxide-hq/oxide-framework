@@ -42,7 +42,13 @@ templates! {
     CONTROLLER => "make/controller.rs.tpl",
     RESOURCE_CONTROLLER => "make/resource_controller.rs.tpl",
     REQUEST => "make/request.rs.tpl",
+    MIDDLEWARE => "make/middleware.rs.tpl",
 }
+
+/// The `src/http/middleware/mod.rs` of a new app, and of an older one on its first
+/// `make:middleware`.
+pub(crate) const MIDDLEWARE_MOD: &str =
+    "//! Middleware. Generate one with `oxide make:middleware`.\n";
 
 /// The Oxide Eloquent Rust skill, as maintained for the framework repository.
 const SKILL: &str = include_str!("../../../.claude/skills/oxide-eloquent-rust/SKILL.md");
@@ -134,6 +140,8 @@ mod tests {
             "controller",
             "resource",
             "request",
+            "middleware",
+            "alias",
         ];
         for (path, template) in ALL {
             let mut rest = *template;

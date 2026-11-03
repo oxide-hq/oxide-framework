@@ -114,6 +114,7 @@ fn new_scaffolds_the_api_blog_application() {
             "config/database.toml",
             "src/models/post.rs",
             "src/http/controllers/post_controller.rs",
+            "src/http/middleware/mod.rs",
             "src/http/requests/store_post_request.rs",
             "src/routes/api.rs",
             "tests/post_feature_test.rs",
@@ -128,6 +129,8 @@ fn new_scaffolds_the_api_blog_application() {
     assert!(manifest.contains("database = \"sqlite\""));
     assert!(read(&app, "tests/post_feature_test.rs").contains("use sample_app::"));
     assert!(read(&app, "src/routes/api.rs").contains(r#"resource("/posts", PostController);"#));
+    assert!(read(&app, "src/lib.rs").contains("Application::builder()"));
+    assert!(read(&app, "src/http/mod.rs").contains("pub mod middleware;"));
     assert!(read(&app, ".env.example").contains("DATABASE_URL=sqlite://"));
     assert!(read(&app, "config/database.toml").contains("url = \"sqlite://"));
     assert!(read(&app, "src/config.rs").contains("pub struct DatabaseConfig"));
@@ -302,6 +305,7 @@ fn generated_apps_pass_their_own_tests() {
     succeeds(oxide(&blog, &["make:controller", "Comment", "--resource"]));
     succeeds(oxide(&blog, &["make:controller", "Dashboard"]));
     succeeds(oxide(&blog, &["make:request", "StoreCommentRequest"]));
+    succeeds(oxide(&blog, &["make:middleware", "EnsureRole"]));
     // `values` is an SQL keyword: the migration must quote it.
     succeeds(oxide(&blog, &["make:model", "Value", "-m"]));
     cargo_test(&blog, &[]);
@@ -320,4 +324,80 @@ fn generated_apps_pass_their_own_tests() {
         );
         eprintln!("skipping the PostgreSQL app: set OXIDE_TEST_POSTGRES_URL");
     }
+}
+
+#[test]
+fn make_middleware_creates_and_registers_the_file() {
+    let dir = sandbox();
+    let app = new_app(&dir, "sample-app", &[]);
+
+    let out = succeeds(oxide(&app, &["make:middleware", "EnsureRole"]));
+    assert!(out.contains("Middleware [src/http/middleware/ensure_role.rs] created successfully."));
+    let source = read(&app, "src/http/middleware/ensure_role.rs");
+    assert!(source.contains("pub struct EnsureRole;"));
+    assert!(source.contains(r#".alias("ensure_role", EnsureRole)"#));
+    assert!(read(&app, "src/http/middleware/mod.rs").contains("pub mod ensure_role;"));
+
+    // The `Middleware` suffix doesn't end up in the alias, and registering twice changes nothing.
+    succeeds(oxide(&app, &["make:middleware", "AuthMiddleware"]));
+    assert!(
+        read(&app, "src/http/middleware/auth_middleware.rs")
+            .contains(r#".alias("auth", AuthMiddleware)"#)
+    );
+    let registered = read(&app, "src/http/middleware/mod.rs");
+    succeeds(oxide(&app, &["make:middleware", "EnsureRole", "--force"]));
+    assert_eq!(read(&app, "src/http/middleware/mod.rs"), registered);
+    assert!(
+        fails(oxide(&app, &["make:middleware", "EnsureRole"]))
+            .contains("already exists; use --force")
+    );
+    for name in ["Type", "Mod"] {
+        assert!(
+            fails(oxide(&app, &["make:middleware", name])).contains("keyword"),
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn make_middleware_works_in_apps_generated_before_it_existed() {
+    let dir = sandbox();
+    let app = new_app(&dir, "old-app", &[]);
+    // Undo what newer generators add, as in an app created by an earlier `oxide`.
+    fs::remove_dir_all(app.join("src/http/middleware")).unwrap();
+    let http = read(&app, "src/http/mod.rs").replace("pub mod middleware;\n", "");
+    fs::write(app.join("src/http/mod.rs"), http).unwrap();
+
+    succeeds(oxide(&app, &["make:middleware", "Audit"]));
+    assert!(read(&app, "src/http/mod.rs").contains("pub mod middleware;"));
+    assert!(read(&app, "src/http/middleware/mod.rs").contains("pub mod audit;"));
+    assert!(app.join("src/http/middleware/audit.rs").is_file());
+}
+
+#[test]
+fn make_middleware_refuses_clashing_names_and_works_without_a_database() {
+    let dir = sandbox();
+    let minimal = new_app(&dir, "tiny-app", &["--preset", "minimal"]);
+    succeeds(oxide(&minimal, &["make:middleware", "EnsureRole"]));
+    assert!(minimal.join("src/http/middleware/ensure_role.rs").is_file());
+
+    // Names the generated file already imports would not compile.
+    for name in ["Middleware", "Request", "MwNext"] {
+        let error = fails(oxide(&minimal, &["make:middleware", name]));
+        assert!(
+            error.contains("already used by the generated middleware file"),
+            "{name}: {error}"
+        );
+        assert!(
+            !minimal
+                .join(format!("src/http/middleware/{}.rs", name.to_lowercase()))
+                .exists()
+        );
+    }
+
+    // A project that isn't an app with an http module is refused before anything is written.
+    fs::remove_file(minimal.join("src/http/mod.rs")).unwrap();
+    let error = fails(oxide(&minimal, &["make:middleware", "Audit"]));
+    assert!(error.contains("src/http/mod.rs not found"), "{error}");
+    assert!(!minimal.join("src/http/middleware/audit.rs").exists());
 }

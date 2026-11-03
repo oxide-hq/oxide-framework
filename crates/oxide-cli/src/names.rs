@@ -47,6 +47,31 @@ pub fn module_name(type_name: &str) -> Result<String, CliError> {
     Ok(module)
 }
 
+/// Type names the generated middleware file already uses, so a struct of that name would clash
+/// with its imports.
+const MIDDLEWARE_RESERVED: &[&str] = &[
+    "Middleware",
+    "MwNext",
+    "MiddlewareFuture",
+    "Request",
+    "Box",
+    "String",
+    "Option",
+    "Result",
+    "Vec",
+];
+
+/// A name for a middleware struct, which mustn't shadow what the generated file imports.
+pub fn middleware_name(input: &str) -> Result<String, CliError> {
+    let name = type_name(input)?;
+    if MIDDLEWARE_RESERVED.contains(&name.as_str()) {
+        return Err(CliError::invalid(format!(
+            "`{name}` is already used by the generated middleware file; pick another name, e.g. `Ensure{name}`"
+        )));
+    }
+    Ok(name)
+}
+
 /// `BlogPost` -> `blog_post`.
 pub fn snake(name: &str) -> String {
     name.to_snake_case()

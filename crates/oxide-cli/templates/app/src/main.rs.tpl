@@ -16,6 +16,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener =
         tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], app.port))).await?;
     println!("{} is listening on http://{}", app.name, listener.local_addr()?);
-    oxide::axum::serve(listener, {{crate_name}}::build_app(ctx)).await?;
+    oxide::axum::serve(listener, {{crate_name}}::build_app(ctx).await?).await?;
     Ok(())
 }

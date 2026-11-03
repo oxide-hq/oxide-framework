@@ -11,7 +11,7 @@ async fn app() -> (AppContext, TestClient) {
     let db = DatabasePool::connect_fresh(&database_url()).await.unwrap();
     db.migrate(&MIGRATOR).await.unwrap();
     let ctx = AppContext::new(db, {{crate_name}}::config::load().unwrap());
-    (ctx.clone(), TestClient::new(build_app(ctx)))
+    (ctx.clone(), TestClient::new(build_app(ctx).await.unwrap()))
 }
 
 #[tokio::test]
