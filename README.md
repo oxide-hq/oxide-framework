@@ -46,6 +46,7 @@ comparisons throughout. Its source is [`docs/index.html`](docs/index.html), depl
 | Providers & Application | `Application::builder().provider(..).build()`, typed container (singleton/scoped/transient, `dyn` contracts), `Inject<T>` |
 | Logging & Context       | `config/logging.toml` channels (stderr, file, daily, JSON, stacks) on `tracing`; request-id `Context` on every line |
 | Middleware              | `Middleware` trait, global stack, aliases with parameters (`role:admin`), groups, priority, terminable; `route_middleware(&["api"])` in `routes!` |
+| Built-in middleware     | `HandleCors`, `TrustHosts`, `TrimStrings`, `ConvertEmptyStringsToNull`, `ValidatePostSize`, `SecurityHeaders`, `SetCacheHeaders` |
 | Service container       | `#[derive(ServiceContainer)]` on your state, `#[derive(Service)]` on services |
 | Facades                 | `AppContext::resolve::<Mailer>()` inside `facade_middleware` (task-local)     |
 | `FormRequest`           | `#[derive(FormRequest)]` + the `Validated<T>` extractor                       |

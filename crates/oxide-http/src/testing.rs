@@ -64,6 +64,11 @@ impl TestClient {
     pub fn delete(&self, uri: impl Into<String>) -> TestRequest {
         self.request(Method::DELETE, uri)
     }
+
+    /// An `OPTIONS` request, as browsers send for CORS preflights.
+    pub fn options(&self, uri: impl Into<String>) -> TestRequest {
+        self.request(Method::OPTIONS, uri)
+    }
 }
 
 /// A request being built by [`TestClient`].
