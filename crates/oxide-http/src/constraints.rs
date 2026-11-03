@@ -1,7 +1,9 @@
 //! Route parameter constraints, like Laravel's `->whereNumber('id')`.
 //!
 //! Each function returns a layer that answers `404 Not Found` when the named path parameter
-//! doesn't match, so the handler only ever sees valid values. Use them in a `middleware` block:
+//! doesn't match, so the handler only ever sees valid values. A route without a parameter of that
+//! name is left alone, so a block can cover routes with different parameters; spell the name
+//! exactly as in the path, because a typo constrains nothing. Use them in a `middleware` block:
 //!
 //! ```ignore
 //! routes! {
