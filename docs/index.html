@@ -524,6 +524,7 @@ kbd {
     <thead><tr><th>Crate</th><th>What it gives you</th></tr></thead>
     <tbody>
       <tr><td><code>oxide</code></td><td>The crate your app depends on. Re-exports <code>oxide::config</code>, <code>oxide::http</code> and <code>oxide::orm</code> and gathers everything into <code>oxide::prelude</code>.</td></tr>
+      <tr><td><code>oxide-log</code></td><td>Logging: channels on <code>tracing</code>, the request <code>Context</code> and request-id middleware.</td></tr>
       <tr><td><code>oxide-foundation</code></td><td>The <code>Application</code> builder, <code>ServiceProvider</code>s and the typed container with singleton, scoped and transient bindings.</td></tr>
       <tr><td><code>oxide-config</code>, <code>oxide-config-macros</code></td><td>Typed configuration: <code>#[derive(Config)]</code>, <code>config/*.toml</code>, <code>.env</code> files, environments and boot-time validation.</td></tr>
       <tr><td><code>oxide</code></td><td>The crate your app depends on. Re-exports <code>oxide::http</code>, <code>oxide::orm</code> and <code>oxide::support</code> and gathers everything into <code>oxide::prelude</code>.</td></tr>
@@ -646,6 +647,7 @@ kbd {
     ├── build.rs                   # rebuilds when a migration changes
     ├── config/
     │   ├── app.toml               # name, port, debug (override with APP_NAME, APP_PORT, APP_DEBUG)
+    │   ├── logging.toml           # log channels and levels (LOG_CHANNEL, LOG_LEVEL)
     │   └── database.toml          # url (override with DATABASE_URL)
     ├── database/
     │   └── migrations/
@@ -1580,6 +1582,75 @@ kbd {
     }).await?;
   </script>
   <p>A pipeline step decides whether to call <code>next</code>, so it can short-circuit. <code>Lottery::wins_with(draw)</code> is deterministic for tests. Laravel's <code>once()</code> is <code>std::sync::OnceLock</code> or <code>LazyLock</code> in Rust, so there is no wrapper.</p>
+</section>
+
+<section class="page" id="logging" data-title="Logging" data-group="The Basics">
+  <p class="eyebrow">The Basics</p>
+  <h1>Logging</h1>
+  <p class="lead">Oxide logs through <code>tracing</code>, with Laravel's idea of <em>channels</em> on top: you configure where logs go in <code>config/logging.toml</code>, and every line carries the request's id and any context you add.</p>
+
+  <h2>Writing logs</h2>
+  <div class="compare">
+    <script type="text/plain" data-lang="php">
+      Log::info('User signed in', ['user_id' => $user->id]);
+      Log::channel('audit')->warning('Report exported');
+    </script>
+    <script type="text/plain" data-lang="rust">
+      tracing::info!(user_id = user.id, "User signed in");
+      Log::channel("audit").warn("Report exported");
+    </script>
+  </div>
+  <p>The <code>tracing</code> macros (re-exported as <code>oxide::tracing</code>) give you structured fields. <code>Log::info</code>, <code>Log::error</code> and the rest are shortcuts for plain messages, and <code>Log::channel("audit")</code> addresses one channel.</p>
+
+  <h2>Channels</h2>
+  <script type="text/plain" data-lang="ini" data-label="config/logging.toml">
+    default = "stack"            # where ordinary events go (env: LOG_CHANNEL)
+    level   = "info"             # the default level (env: LOG_LEVEL)
+
+    [channels.stack]
+    driver = "stack"
+    channels = ["stderr", "daily"]
+
+    [channels.daily]
+    driver = "daily"
+    path = "storage/logs/app.log"   # writes app.2026-11-03.log, app.2026-11-04.log, ...
+    days = 14                       # keep two weeks
+
+    [channels.audit]
+    driver = "json"
+    path = "storage/logs/audit.log"
+    level = "debug"
+  </script>
+  <table>
+    <thead><tr><th>Driver</th><th>Writes</th></tr></thead>
+    <tbody>
+      <tr><td><code>stderr</code></td><td>Text lines on standard error. A channel with this name always exists.</td></tr>
+      <tr><td><code>single</code></td><td>Text lines appended to <code>path</code>.</td></tr>
+      <tr><td><code>daily</code></td><td>A file per day derived from <code>path</code>, keeping <code>days</code> of them.</td></tr>
+      <tr><td><code>json</code></td><td>One JSON object per line, on standard error or in <code>path</code>.</td></tr>
+      <tr><td><code>stack</code></td><td>Fans out to the channels listed in <code>channels</code>.</td></tr>
+    </tbody>
+  </table>
+  <p>The default channel, and the channels in its stack, receive every event. Other channels, like <code>audit</code> above, receive only events addressed to them with <code>Log::channel("audit")</code> or <code>tracing::info!(channel = "audit", ..)</code>. Each channel has its own <code>level</code> (<code>error</code>, <code>warn</code>, <code>info</code>, <code>debug</code>, <code>trace</code> or <code>off</code>). Addressing a stack by name (<code>Log::channel("stack")</code>) reaches every channel in it. File channels write on a background thread and never drop lines: if the writer ever falls behind, logging waits for it. Text lines escape line breaks in messages, so logged input can't forge entries, and records from dependencies that use the <code>log</code> crate flow into the same channels.</p>
+  <p>Install the logger once, and keep the guard it returns alive; dropping it flushes the files:</p>
+  <script type="text/plain" data-lang="rust" data-label="src/main.rs">
+    let logging = config.require::<LoggingConfig>()?;
+    let _logs = Logger::init(&logging)?;
+  </script>
+  <p>Mistakes in the file (an unknown channel, a stack that loops back on itself, a bad level, a missing <code>path</code>) are errors at start-up.</p>
+
+  <h2>Context</h2>
+  <p>A <code>Context</code> is a set of key/values that every log line in the current request carries. <code>Application</code> starts one for each request and fills in <code>request_id</code>, <code>method</code> and <code>path</code>:</p>
+  <script type="text/plain" data-lang="text">
+    2026-11-03T09:12:44.120Z INFO  blog_app::http: signed in user_id=7 [method=POST path=/login request_id=4f0c...]
+  </script>
+  <script type="text/plain" data-lang="rust">
+    Context::add("tenant", "acme");          // appears on every later log line of this request
+    Context::add_hidden("api_key_id", 12);   // carried, but never logged
+    let snapshot = Context::dehydrate();     // JSON, to restore in another task or a queued job
+    Context::scope_from(&snapshot, async { /* same context here */ }).await;
+  </script>
+  <p>The response carries the id in an <code>X-Request-Id</code> header. A client's own <code>X-Request-Id</code> is reused if it is short and made of letters, digits and <code>-_.:</code>, so you can follow one request across services. A context belongs to one task: a task you <code>tokio::spawn</code> starts empty, so pass it a snapshot if it should log with the request's context.</p>
 </section>
 
 <!-- ================================================================ DATABASE -->

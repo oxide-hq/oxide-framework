@@ -19,6 +19,7 @@ pub struct AppConfig {
 /// Loads and validates every section at once; the error lists everything that is wrong.
 pub fn load() -> Result<Configuration, ConfigErrors> {
     Configuration::builder()
-        .section::<AppConfig>(){{database_section}}
+        .section::<AppConfig>()
+        .section::<LoggingConfig>(){{database_section}}
         .load()
 }

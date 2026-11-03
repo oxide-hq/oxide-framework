@@ -689,3 +689,22 @@ async fn concurrent_resolves_share_one_scoped_instance_and_one_singleton() {
     );
     assert_eq!(singleton_builds.load(Ordering::SeqCst), 1);
 }
+
+#[tokio::test]
+async fn every_response_carries_a_request_id() {
+    let app = Application::builder()
+        .provider(MailProvider)
+        .build()
+        .await
+        .unwrap();
+    let response = app.test_client().get("/mail").send().await;
+    response.assert_ok();
+    let id = response
+        .headers()
+        .get("x-request-id")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_owned();
+    assert_eq!(id.len(), 36, "{id}");
+}

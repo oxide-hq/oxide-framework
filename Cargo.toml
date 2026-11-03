@@ -15,6 +15,7 @@ oxide-http = { path = "crates/oxide-http", version = "0.1.0" }
 oxide-http-macros = { path = "crates/oxide-http-macros", version = "0.1.0" }
 oxide-orm = { path = "crates/oxide-orm", version = "0.1.0" }
 oxide-orm-macros = { path = "crates/oxide-orm-macros", version = "0.1.0" }
+oxide-log = { path = "crates/oxide-log", version = "0.1.0" }
 oxide-foundation = { path = "crates/oxide-foundation", version = "0.1.0" }
 oxide-config = { path = "crates/oxide-config", version = "0.1.0" }
 oxide-config-macros = { path = "crates/oxide-config-macros", version = "0.1.0" }
@@ -51,6 +52,12 @@ uuid = { version = "1", features = ["v4", "v7"] }
 ulid = "3"
 getrandom = "0.4"
 deunicode = "1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["std", "fmt", "registry"] }
+tracing-appender = "0.2"
+tracing-log = "0.2"
 
 # Proc-macro tooling
 syn = { version = "3", features = ["full"] }
