@@ -54,6 +54,7 @@ comparisons throughout. Its source is [`docs/index.html`](docs/index.html), depl
 | Fallback & redirect routes | `OxideRouter::fallback`, `redirect_to`, `permanent_redirect_to` |
 | Resource naming | `api_resource`, `names = ".."`, nested resources |
 | Domain routing | `domain("{account}.example.com")` layer + `DomainParams` extractor |
+| Scoped bindings | `ScopedBindable` + `BindIn<Parent, Child>`; custom keys via `Id: FromStr` |
 | Service container       | `#[derive(ServiceContainer)]` on your state, `#[derive(Service)]` on services |
 | Facades                 | `AppContext::resolve::<Mailer>()` inside `facade_middleware` (task-local)     |
 | `FormRequest`           | `#[derive(FormRequest)]` + the `Validated<T>` extractor                       |

@@ -30,7 +30,7 @@ pub mod routing;
 pub mod testing;
 pub mod upload;
 
-pub use binding::{Bind, RouteBindable};
+pub use binding::{Bind, BindIn, RouteBindable, ScopedBindable};
 pub use constraints::{
     DomainParams, domain, where_alpha, where_alpha_numeric, where_fn, where_in, where_number,
     where_uuid,
@@ -57,7 +57,7 @@ pub mod __private {
 
 /// Everything you need for day-to-day Oxide HTTP code: `use oxide_http::prelude::*;`.
 pub mod prelude {
-    pub use crate::binding::{Bind, RouteBindable};
+    pub use crate::binding::{Bind, BindIn, RouteBindable, ScopedBindable};
     pub use crate::constraints::{
         DomainParams, domain, where_alpha, where_alpha_numeric, where_fn, where_in, where_number,
         where_uuid,
