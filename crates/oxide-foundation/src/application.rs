@@ -15,6 +15,7 @@ use crate::container::{Bindings, Container, ServiceKey};
 use crate::exceptions::{
     DefaultExceptionHandler, ExceptionHandler, ExceptionState, exception_middleware,
 };
+use crate::middleware::{Middleware, MiddlewareRegistry, global_middleware, registry_middleware};
 use crate::provider::{App, BootError, ServiceProvider};
 
 type Binder = Box<dyn FnOnce(&mut Bindings) + Send>;
@@ -28,6 +29,9 @@ pub struct ApplicationBuilder {
     routes: Vec<Router>,
     exceptions: Arc<dyn ExceptionHandler>,
     debug: bool,
+    global_middleware: Vec<Arc<dyn Middleware>>,
+    aliases: Vec<(String, Arc<dyn Middleware>)>,
+    groups: Vec<(String, Vec<String>)>,
 }
 
 impl fmt::Debug for ApplicationBuilder {
@@ -62,6 +66,33 @@ impl ApplicationBuilder {
     /// Adds routes (for example `router.with_state(ctx).into()` from `routes!`).
     pub fn routes(mut self, router: impl Into<Router>) -> Self {
         self.routes.push(router.into());
+        self
+    }
+
+    /// Adds middleware that runs for every request, including ones that match no route. Several
+    /// run in the order added, except that a higher [`priority`](Middleware::priority) runs
+    /// first.
+    pub fn middleware(mut self, middleware: impl Middleware) -> Self {
+        self.global_middleware.push(Arc::new(middleware));
+        self
+    }
+
+    /// Names a middleware so routes can use it: `route_middleware(&["role:admin"])` finds the
+    /// middleware registered as `"role"` and passes it `["admin"]`.
+    pub fn alias(mut self, name: impl Into<String>, middleware: impl Middleware) -> Self {
+        self.aliases.push((name.into(), Arc::new(middleware)));
+        self
+    }
+
+    /// Names a bundle of aliases (and other groups, with parameters): `api` = `["throttle:60,1",
+    /// "auth"]`. Every member must exist, or `build` fails.
+    pub fn middleware_group<I, S>(mut self, name: impl Into<String>, members: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.groups
+            .push((name.into(), members.into_iter().map(Into::into).collect()));
         self
     }
 
@@ -125,6 +156,10 @@ impl ApplicationBuilder {
             handler: self.exceptions,
             debug,
         };
+        let registry = Arc::new(
+            MiddlewareRegistry::new(self.global_middleware, self.aliases, self.groups)
+                .map_err(BootError::Middleware)?,
+        );
         let container = Container::new(bindings, deferred);
         let app = App::new(container.clone(), self.configuration);
         for provider in &eager {
@@ -151,6 +186,14 @@ impl ApplicationBuilder {
         // Outermost last: the request context wraps the scope, so even services built while
         // resolving log with the request id.
         let router = router
+            .layer(middleware::from_fn_with_state(
+                Arc::clone(&registry),
+                global_middleware,
+            ))
+            .layer(middleware::from_fn_with_state(
+                registry,
+                registry_middleware,
+            ))
             .layer(middleware::from_fn_with_state(container, scope_middleware))
             .layer(middleware::from_fn_with_state(
                 exceptions,
@@ -188,6 +231,9 @@ impl Application {
             routes: Vec::new(),
             exceptions: Arc::new(DefaultExceptionHandler::default()),
             debug: false,
+            global_middleware: Vec::new(),
+            aliases: Vec::new(),
+            groups: Vec::new(),
         }
     }
 

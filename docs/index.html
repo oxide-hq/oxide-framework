@@ -525,7 +525,7 @@ kbd {
     <tbody>
       <tr><td><code>oxide</code></td><td>The crate your app depends on. Re-exports <code>oxide::config</code>, <code>oxide::http</code> and <code>oxide::orm</code> and gathers everything into <code>oxide::prelude</code>.</td></tr>
       <tr><td><code>oxide-log</code></td><td>Logging: channels on <code>tracing</code>, the request <code>Context</code> and request-id middleware.</td></tr>
-      <tr><td><code>oxide-foundation</code></td><td>The <code>Application</code> builder, <code>ServiceProvider</code>s, the typed container with singleton, scoped and transient bindings, and the <code>ExceptionHandler</code>.</td></tr>
+      <tr><td><code>oxide-foundation</code></td><td>The <code>Application</code> builder, <code>ServiceProvider</code>s, the typed container with singleton, scoped and transient bindings, the <code>ExceptionHandler</code> and middleware (aliases, groups, priority).</td></tr>
       <tr><td><code>oxide-config</code>, <code>oxide-config-macros</code></td><td>Typed configuration: <code>#[derive(Config)]</code>, <code>config/*.toml</code>, <code>.env</code> files, environments and boot-time validation.</td></tr>
       <tr><td><code>oxide</code></td><td>The crate your app depends on. Re-exports <code>oxide::http</code>, <code>oxide::orm</code> and <code>oxide::support</code> and gathers everything into <code>oxide::prelude</code>.</td></tr>
       <tr><td><code>oxide-support</code></td><td>Helpers: <code>CollectionExt</code>, <code>Str</code>, <code>Arr</code>, <code>Number</code>, relative dates, <code>Pipeline</code>, <code>Benchmark</code>, <code>Lottery</code> and <code>retry</code>.</td></tr>
@@ -905,6 +905,69 @@ kbd {
   <div class="callout tip">
     <p>An <code>OxideRouter</code> still lets you compose by hand: <code>nest_prefix("/v2", child)</code>, <code>merge(other)</code>, <code>layer(..)</code> and <code>route_layer(..)</code> all keep the route-name registry in sync.</p>
   </div>
+</section>
+
+<section class="page" id="middleware" data-title="Middleware" data-group="The Basics">
+  <p class="eyebrow">The Basics</p>
+  <h1>Middleware</h1>
+  <p class="lead">Middleware wraps a request: it can inspect it, change it, stop it, or change the response on the way out. Oxide keeps Axum's model and adds Laravel's vocabulary on top of it: <em>global</em> middleware, named <em>aliases</em> with parameters, <em>groups</em>, <em>priority</em> and <em>terminable</em> middleware.</p>
+
+  <h2>Writing middleware</h2>
+  <div class="compare">
+    <script type="text/plain" data-lang="php">
+      class EnsureRole
+      {
+          public function handle(Request $request, Closure $next, string ...$roles)
+          {
+              if (! $request->user()->hasAnyRole($roles)) {
+                  abort(403);
+              }
+
+              return $next($request);
+          }
+      }
+    </script>
+    <script type="text/plain" data-lang="rust">
+      struct EnsureRole;
+
+      impl Middleware for EnsureRole {
+          fn handle<'a>(&'a self, request: Request, next: MwNext, roles: &'a [String]) -> MiddlewareFuture<'a> {
+              Box::pin(async move {
+                  let user = current_user(&request);
+                  if !roles.iter().any(|role| user.has_role(role)) {
+                      return OxideHttpError::Forbidden(String::new()).into_response();
+                  }
+                  next.run(request).await
+              })
+          }
+      }
+    </script>
+  </div>
+  <p>Call <code>next.run(request).await</code> to continue and receive the response, or return a response to stop. For a short one, <code>middleware_fn(|request, next, params| async move { .. })</code> turns a closure into middleware. Services come from the request's scope: <code>request.extensions().get::&lt;Scope&gt;()</code> then <code>scope.resolve::&lt;T&gt;()</code>. An <code>OxideHttpError</code> returned by middleware goes through the <a href="#/errors">exception handler</a> like any other.</p>
+
+  <h2>Registering it</h2>
+  <script type="text/plain" data-lang="rust">
+    Application::builder()
+        .middleware(SecurityHeaders)                           // global: every request, even a 404
+        .alias("role", EnsureRole)                             // a name routes can use
+        .alias("auth", Authenticate)
+        .middleware_group("api", ["throttle:60,1", "auth"])    // a bundle of names
+        .routes(routes! {
+            prefix("/admin") {
+                middleware(route_middleware(&["api", "role:admin,editor"])) {
+                    resource("/users", UserController);
+                }
+            }
+        })
+  </script>
+  <p>Everything after the colon is a parameter: <code>role:admin,editor</code> calls <code>EnsureRole</code> with <code>["admin", "editor"]</code>. A group's members can be aliases with parameters or other groups. <code>route_middleware_without(&amp;["api"], &amp;["throttle"])</code> is the <code>api</code> group minus <code>throttle</code>, Laravel's <code>withoutMiddleware</code>.</p>
+  <p>Group members are checked when the application is built, so a typo there fails at start-up. A route naming an unregistered alias answers a plain <code>500</code> and logs the reason.</p>
+
+  <h2>Order and priority</h2>
+  <p>Middleware runs in the order you list it, outermost first. When one must always run before the others, override <code>priority()</code>: a higher number runs earlier, equal priorities keep their listed order, and it applies to global stacks and to each <code>route_middleware</code> list alike.</p>
+
+  <h2>Terminable middleware</h2>
+  <p>Return <code>true</code> from <code>terminable()</code> and implement <code>terminate(&amp;Outcome)</code> to run work after the response is produced, such as recording metrics. It runs on a spawned task with the method, path, status and headers of the finished request, so it never slows the response and cannot change it.</p>
 </section>
 
 <section class="page" id="controllers" data-title="Controllers" data-group="The Basics">
