@@ -208,6 +208,20 @@ where
         self
     }
 
+    /// Answers requests that match no route (Laravel's `Route::fallback`). Without one, Axum's
+    /// empty 404 applies.
+    ///
+    /// Set it once, on the final router: merging two routers that each have a fallback panics.
+    #[must_use]
+    pub fn fallback<H, T>(mut self, handler: H) -> Self
+    where
+        H: axum::handler::Handler<T, S>,
+        T: 'static,
+    {
+        self.router = self.router.fallback(handler);
+        self
+    }
+
     /// Applies a Tower layer to every route added so far (forwards to [`axum::Router::layer`]).
     #[must_use]
     pub fn layer<L>(mut self, layer: L) -> Self
