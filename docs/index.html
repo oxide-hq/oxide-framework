@@ -525,6 +525,8 @@ kbd {
     <tbody>
       <tr><td><code>oxide</code></td><td>The crate your app depends on. Re-exports <code>oxide::config</code>, <code>oxide::http</code> and <code>oxide::orm</code> and gathers everything into <code>oxide::prelude</code>.</td></tr>
       <tr><td><code>oxide-config</code>, <code>oxide-config-macros</code></td><td>Typed configuration: <code>#[derive(Config)]</code>, <code>config/*.toml</code>, <code>.env</code> files, environments and boot-time validation.</td></tr>
+      <tr><td><code>oxide</code></td><td>The crate your app depends on. Re-exports <code>oxide::http</code>, <code>oxide::orm</code> and <code>oxide::support</code> and gathers everything into <code>oxide::prelude</code>.</td></tr>
+      <tr><td><code>oxide-support</code></td><td>Helpers: <code>CollectionExt</code>, <code>Str</code>, <code>Arr</code>, <code>Number</code>, relative dates, <code>Pipeline</code>, <code>Benchmark</code>, <code>Lottery</code> and <code>retry</code>.</td></tr>
       <tr><td><code>oxide-http</code></td><td>Routing, the service container, <code>FormRequest</code>, route-model binding, the error contract and <code>TestClient</code>.</td></tr>
       <tr><td><code>oxide-http-macros</code></td><td>The <code>Service</code>, <code>ServiceContainer</code> and <code>FormRequest</code> derives and the <code>routes!</code> macro.</td></tr>
       <tr><td><code>oxide-orm</code></td><td><code>DatabasePool</code>, the <code>Model</code> trait, the query builder, migrations and <code>OrmError</code>, on sqlx with SQLite or PostgreSQL.</td></tr>
@@ -1365,6 +1367,109 @@ kbd {
     </tbody>
   </table>
   <p>Run <code>oxide help &lt;command&gt;</code> for the full list.</p>
+</section>
+
+<section class="page" id="support" data-title="Support Helpers" data-group="The Basics">
+  <p class="eyebrow">The Basics</p>
+  <h1>Support Helpers</h1>
+  <p class="lead">The small helpers that make Laravel code read well: collections, strings, arrays, numbers, relative dates, pipelines and retries. Rust's iterators already cover much of Collection, so Oxide adds only what is missing.</p>
+  <script type="text/plain" data-lang="rust">
+    use oxide::prelude::*;   // CollectionExt, Tap, Str, Stringable, Arr, Number, Pipeline, ...
+  </script>
+
+  <h2>Collections</h2>
+  <p>There is no <code>Collection</code> type: <code>CollectionExt</code> adds the missing methods to every iterator, so they work on a <code>Vec</code>, a slice's <code>.iter()</code>, a map or a lazy stream. <code>chunk</code> and <code>unique_by</code> return lazy iterators, so they never load a whole result set; that is Oxide's <code>LazyCollection</code>.</p>
+  <div class="compare">
+    <script type="text/plain" data-lang="php">
+      $byRole = $users->groupBy('role');
+      $total  = $users->sum('age');
+      $oldest = $users->sortByDesc('age')->values();
+
+      foreach ($users->chunk(100) as $batch) { /* ... */ }
+    </script>
+    <script type="text/plain" data-lang="rust">
+      let by_role = users.iter().group_by(|u| u.role);
+      let total   = users.iter().sum_by(|u| u.age);
+      let oldest  = users.iter().sorted_by_desc(|u| u.age);
+
+      for batch in users.iter().chunk(100) { /* ... */ }
+    </script>
+  </div>
+  <table>
+    <thead><tr><th>Laravel</th><th>Oxide</th></tr></thead>
+    <tbody>
+      <tr><td><code>keyBy</code>, <code>groupBy</code>, <code>countBy</code>, <code>mapWithKeys</code></td><td><code>key_by</code>, <code>group_by</code> (a map; <code>group_by_ordered</code> keeps first-seen order), <code>count_by</code>, <code>map_with_keys</code></td></tr>
+      <tr><td><code>sum('x')</code>, <code>avg('x')</code></td><td><code>sum_by</code>, <code>avg_by</code></td></tr>
+      <tr><td><code>sortBy</code>, <code>sortByDesc</code></td><td><code>sorted_by</code>, <code>sorted_by_desc</code></td></tr>
+      <tr><td><code>unique('x')</code>, <code>chunk(n)</code>, <code>where('x', v)</code>, <code>implode</code></td><td><code>unique_by</code>, <code>chunk</code>, <code>where_eq</code>, <code>implode</code></td></tr>
+      <tr><td><code>map</code>, <code>pluck</code>, <code>filter</code>, <code>reject</code>, <code>flatMap</code></td><td><code>Iterator::map</code>, <code>filter</code>, <code>flat_map</code> (pluck is a <code>map</code>)</td></tr>
+      <tr><td><code>partition</code>, <code>first</code>, <code>contains</code>, <code>every</code>, <code>reduce</code>, <code>count</code>, <code>min</code>/<code>max</code></td><td><code>Iterator::partition</code>, <code>find</code>, <code>any</code>, <code>all</code>, <code>fold</code>, <code>count</code>, <code>min_by_key</code>/<code>max_by_key</code></td></tr>
+      <tr><td><code>pipe</code>, <code>tap</code>, <code>when</code>, <code>unless</code></td><td><code>Tap</code>, available on every value</td></tr>
+    </tbody>
+  </table>
+  <div class="callout note">
+    <p>If you also import <code>itertools</code>, methods that exist in both (<code>unique_by</code>, for one) are ambiguous; call one explicitly, as <code>CollectionExt::unique_by(iter, key)</code>.</p>
+  </div>
+
+  <h2>Strings</h2>
+  <p><code>Str</code> holds the functions and <code>Str::of(..)</code> starts a fluent <code>Stringable</code> chain.</p>
+  <script type="text/plain" data-lang="rust">
+    Str::slug("Hello, Oxide World!");            // "hello-oxide-world"
+    Str::ascii("Crème brûlée");                 // "Creme brulee"; slug() transliterates the same way
+    Str::plural("category");                     // "categories"
+    Str::singular("blog_posts");                 // "blog_post"
+    Str::limit("The quick brown fox", 9, "…");   // "The quick…"
+    Str::mask("secret@example.com", '*', 3, None);
+    Str::between("[a]", "[", "]");               // "a"
+    let id = Str::uuid7();                       // time-ordered UUID; also Str::uuid(), Str::ulid()
+    let token = Str::random(40);                 // from the operating system's random source
+
+    Str::of("Hello Oxide").snake().upper().finish("!").to_string();
+  </script>
+  <p>Also available: <code>snake</code>, <code>kebab</code>, <code>camel</code>, <code>studly</code>, <code>title</code>, <code>words</code>, <code>before</code>/<code>after</code> (and <code>_last</code>), <code>start</code>, <code>squish</code>, <code>replace_first</code>/<code>replace_last</code>, <code>is_uuid</code>, <code>is_ulid</code>. Markdown rendering arrives with the Mail epic, which needs it first.</p>
+
+  <h2>Arrays and numbers</h2>
+  <p><code>Arr</code> reads and writes <code>serde_json::Value</code> with dot notation, like <code>Arr::get($data, 'user.tags.0')</code>:</p>
+  <script type="text/plain" data-lang="rust">
+    let mut data = json!({ "user": { "name": "Ann" } });
+    Arr::set(&mut data, "user.tags.0", json!("admin"));
+    Arr::get(&data, "user.name");           // Some("Ann")
+    Arr::forget(&mut data, "user.name");    // removes and returns it
+    Arr::dot(&data);                        // { "user.tags.0": "admin" }
+  </script>
+  <script type="text/plain" data-lang="rust">
+    Number::format(1_234_567.891, 2);   // "1,234,567.89"
+    Number::file_size(1_536, 1);        // "1.5 KB"
+    Number::abbreviate(1_200.0, 1);     // "1.2K"
+    Number::currency(1234.5, "USD");    // "$1,234.50"
+    Number::ordinal(22);                // "22nd"
+    Number::percentage(12.345, 1);      // "12.3%"
+  </script>
+
+  <h2>Dates</h2>
+  <p>Oxide uses <code>chrono</code> rather than <code>jiff</code>: sqlx and the ORM already depend on it, it builds on the minimum supported Rust version and it works with serde out of the box. <code>now()</code> and <code>today()</code> return UTC values, and <code>diff_for_humans</code> speaks like Carbon:</p>
+  <script type="text/plain" data-lang="rust">
+    diff_for_humans(created_at);                      // "5 minutes ago", "in 2 days"
+    diff_for_humans_from(created_at, some_instant);   // relative to a fixed instant
+  </script>
+  <p>The second form takes the "now" explicitly, so the test clock added with the testing toolkit can drive it.</p>
+
+  <h2>Pipelines, benchmarks, lotteries and retries</h2>
+  <script type="text/plain" data-lang="rust">
+    let slug = Pipeline::send(title)
+        .through(|text, next| next(text.trim().to_owned()))
+        .through(|text, next| next(Str::slug(&text)))
+        .then(|text| text);
+
+    let (rows, took) = Benchmark::value(|| expensive());
+
+    if Lottery::odds(1, 100).wins() { log_sample(); }   // sample one request in a hundred
+
+    let page = retry(3, Duration::from_millis(200), |attempt| async move {
+        fetch_page(attempt).await
+    }).await?;
+  </script>
+  <p>A pipeline step decides whether to call <code>next</code>, so it can short-circuit. <code>Lottery::wins_with(draw)</code> is deterministic for tests. Laravel's <code>once()</code> is <code>std::sync::OnceLock</code> or <code>LazyLock</code> in Rust, so there is no wrapper.</p>
 </section>
 
 <!-- ================================================================ DATABASE -->
