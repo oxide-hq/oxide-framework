@@ -30,6 +30,8 @@ jobs:
         with:
           components: rustfmt
       - run: cargo fmt --all -- --check
+      - name: Cursor rule matches the Claude Code skill
+        run: scripts/sync-agent-rules.sh --check
 
   clippy:
     name: Clippy

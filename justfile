@@ -31,5 +31,10 @@ expand crate="oxide-http" *args="":
 deny:
     cargo deny check
 
+# Regenerate the Cursor rule from the Claude Code skill
+sync-rules:
+    scripts/sync-agent-rules.sh
+
 # Everything CI runs
 ci: fmt-check lint test
+    scripts/sync-agent-rules.sh --check

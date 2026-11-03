@@ -230,6 +230,15 @@ just deny       # cargo deny check (needs cargo-deny)
 just expand     # cargo expand (needs cargo-expand)
 ```
 
+## AI coding agents
+
+The repository ships its conventions as an agent skill:
+[`.claude/skills/oxide-eloquent-rust/SKILL.md`](.claude/skills/oxide-eloquent-rust/SKILL.md) for
+Claude Code, mirrored to [`.cursor/rules/oxide-eloquent-rust.mdc`](.cursor/rules/oxide-eloquent-rust.mdc)
+for Cursor. It covers the three-layer design trace, early returns, the five-action controller
+rule, and the hard rules (no `unwrap`/`expect` in library code, no lock guard across `.await`,
+bound SQL only). Edit the skill, then run `just sync-rules`; CI fails if the two drift.
+
 ## License
 
 Licensed under either of
