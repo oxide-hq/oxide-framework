@@ -20,6 +20,27 @@
 //!
 //! Put [`Configuration`] in your service container and handlers can take `Config<AppConfig>`.
 
+/// `#[derive(Config)]` takes one concrete struct: generics and `rename_all` are compile errors.
+///
+/// ```compile_fail
+/// #[derive(serde::Deserialize, oxide_config::Config)]
+/// #[config(file = "x")]
+/// struct Section<T> {
+///     value: T,
+/// }
+/// ```
+///
+/// ```compile_fail
+/// #[derive(serde::Deserialize, oxide_config::Config)]
+/// #[config(file = "x")]
+/// #[serde(rename_all = "camelCase")]
+/// struct Section {
+///     max_size: u8,
+/// }
+/// ```
+#[cfg(doctest)]
+pub struct DeriveLimits;
+
 // Lets the derive macro's `::oxide_config::...` paths resolve inside this crate too.
 extern crate self as oxide_config;
 

@@ -42,11 +42,14 @@ where
             Configuration::from_ref(state)
                 .get::<T>()
                 .map(Config)
+                // The detail (which section) is for the developer, so it goes to stderr, not the
+                // response body.
                 .ok_or_else(|| {
-                    OxideHttpError::Internal(format!(
-                        "configuration section `{}` was not loaded",
+                    eprintln!(
+                        "oxide-config: section `{}` was not loaded: register it with `ConfigBuilder::section`",
                         T::FILE
-                    ))
+                    );
+                    OxideHttpError::Internal("Server Error".to_owned())
                 }),
         )
     }

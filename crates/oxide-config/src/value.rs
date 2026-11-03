@@ -67,11 +67,11 @@ impl EnvValue for PathBuf {
     }
 }
 
-/// An empty variable, `null` or `(null)` is `None`.
+/// An empty variable, `null` or `(null)` is `None` (as in Laravel); anything else is the value.
 impl<T: EnvValue> EnvValue for Option<T> {
     fn from_env(raw: &str) -> Result<Option<Value>, String> {
         match raw.trim().to_ascii_lowercase().as_str() {
-            "" | "null" | "(null)" | "none" => Ok(None),
+            "" | "null" | "(null)" => Ok(None),
             _ => T::from_env(raw),
         }
     }

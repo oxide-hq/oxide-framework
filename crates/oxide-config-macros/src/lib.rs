@@ -68,6 +68,8 @@ struct FieldAttrs {
     env: Option<LitStr>,
     default: Option<Expr>,
     secret: bool,
+    /// The key serde reads: `#[config(key = "..")]`, else `#[serde(rename = "..")]`, else the ident.
+    key: Option<String>,
 }
 
 fn section_attrs(input: &DeriveInput) -> syn::Result<SectionAttrs> {
@@ -98,6 +100,7 @@ fn field_attrs(field: &syn::Field) -> syn::Result<FieldAttrs> {
         env: None,
         default: None,
         secret: false,
+        key: serde_rename(field),
     };
     for attr in field.attrs.iter().filter(|a| a.path().is_ident("config")) {
         attr.parse_nested_meta(|meta| {
@@ -107,8 +110,12 @@ fn field_attrs(field: &syn::Field) -> syn::Result<FieldAttrs> {
                 attrs.default = Some(meta.value()?.parse::<Expr>()?);
             } else if meta.path.is_ident("secret") {
                 attrs.secret = true;
+            } else if meta.path.is_ident("key") {
+                attrs.key = Some(meta.value()?.parse::<LitStr>()?.value());
             } else {
-                return Err(meta.error("expected `env = \"...\"`, `default = ...` or `secret`"));
+                return Err(meta.error(
+                    "expected `env = \"...\"`, `default = ...`, `secret` or `key = \"...\"`",
+                ));
             }
             Ok(())
         })?;
@@ -116,7 +123,74 @@ fn field_attrs(field: &syn::Field) -> syn::Result<FieldAttrs> {
     Ok(attrs)
 }
 
+/// The `rename` of a field's `#[serde(rename = "..")]` (or `rename(deserialize = "..")`), which is
+/// the key serde looks for, so overrides and defaults must be stored under it.
+fn serde_rename(field: &syn::Field) -> Option<String> {
+    let mut rename = None;
+    for attr in field.attrs.iter().filter(|a| a.path().is_ident("serde")) {
+        // Other serde options are none of our business: skip them without failing.
+        let _ = attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("rename") {
+                if meta.input.peek(syn::Token![=]) {
+                    rename = Some(meta.value()?.parse::<LitStr>()?.value());
+                } else {
+                    meta.parse_nested_meta(|inner| {
+                        let value = inner.value()?.parse::<LitStr>()?.value();
+                        if inner.path.is_ident("deserialize") {
+                            rename = Some(value);
+                        }
+                        Ok(())
+                    })?;
+                }
+            } else if meta.input.peek(syn::Token![=]) {
+                let _ = meta.value()?.parse::<Expr>()?;
+            } else if meta.input.peek(syn::token::Paren) {
+                let content;
+                syn::parenthesized!(content in meta.input);
+                let _ = content.parse::<TokenStream2>()?;
+            }
+            Ok(())
+        });
+    }
+    rename
+}
+
+/// `#[serde(rename_all = "..")]` on the struct renames keys the derive can't see.
+fn reject_rename_all(input: &DeriveInput) -> syn::Result<()> {
+    for attr in input.attrs.iter().filter(|a| a.path().is_ident("serde")) {
+        let mut found = false;
+        let _ = attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("rename_all") {
+                found = true;
+            }
+            if meta.input.peek(syn::Token![=]) {
+                let _ = meta.value()?.parse::<Expr>()?;
+            } else if meta.input.peek(syn::token::Paren) {
+                let content;
+                syn::parenthesized!(content in meta.input);
+                let _ = content.parse::<TokenStream2>()?;
+            }
+            Ok(())
+        });
+        if found {
+            return Err(syn::Error::new_spanned(
+                attr,
+                "`#[serde(rename_all)]` changes the keys `#[derive(Config)]` stores values under; \
+                 name each field's key with `#[config(key = \"...\")]` instead",
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn expand(input: &DeriveInput) -> syn::Result<TokenStream2> {
+    if !input.generics.params.is_empty() {
+        return Err(syn::Error::new_spanned(
+            &input.generics,
+            "`#[derive(Config)]` doesn't support generic structs: a config section is one concrete type",
+        ));
+    }
+    reject_rename_all(input)?;
     let krate = krate();
     let ident = &input.ident;
     let section = section_attrs(input)?;
@@ -141,9 +215,9 @@ fn expand(input: &DeriveInput) -> syn::Result<TokenStream2> {
         let Some(name) = field.ident.as_ref() else {
             continue;
         };
-        let name_str = name.to_string();
         let ty = &field.ty;
         let attrs = field_attrs(field)?;
+        let name_str = attrs.key.clone().unwrap_or_else(|| name.to_string());
         let secret = attrs.secret;
 
         let env = if let Some(env) = &attrs.env {

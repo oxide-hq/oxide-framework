@@ -90,7 +90,7 @@ pub struct ConfigBuilder {
     root: Option<PathBuf>,
     vars: Option<BTreeMap<String, String>>,
     environment: Option<Environment>,
-    loaders: Vec<Loader>,
+    loaders: Vec<(TypeId, Loader)>,
     provided: Vec<Loaded>,
 }
 
@@ -105,7 +105,9 @@ impl fmt::Debug for ConfigBuilder {
 
 impl ConfigBuilder {
     /// The directory holding `config/` and the `.env` files. Defaults to the current directory,
-    /// which is the package root under `cargo run` and `cargo test`.
+    /// which is the package root under `cargo run` and `cargo test` of a single package. In a
+    /// workspace, `cargo run -p app` from the workspace root starts there instead: call
+    /// `.root(..)` (errors name the directory that was searched).
     pub fn root(mut self, root: impl Into<PathBuf>) -> Self {
         self.root = Some(root.into());
         self
@@ -135,14 +137,18 @@ impl ConfigBuilder {
 
     /// Loads section `T` from `config/<T::FILE>.toml`, the environment and its defaults.
     pub fn section<T: ConfigSection>(mut self) -> Self {
-        self.loaders.push(Box::new(|ctx| {
-            let section = load_section::<T>(ctx)?;
-            Ok((TypeId::of::<T>(), T::FILE, Arc::new(section)))
-        }));
+        self.loaders.push((
+            TypeId::of::<T>(),
+            Box::new(|ctx| {
+                let section = load_section::<T>(ctx)?;
+                Ok((TypeId::of::<T>(), T::FILE, Arc::new(section)))
+            }),
+        ));
         self
     }
 
-    /// Supplies a ready-made section without loading anything (handy for tests).
+    /// Supplies a ready-made section without loading anything (handy for tests). It replaces a
+    /// `section::<T>()` for the same type, whose files and environment are then never read.
     pub fn provide<T: ConfigSection>(mut self, section: T) -> Self {
         self.provided
             .push((TypeId::of::<T>(), T::FILE, Arc::new(section)));
@@ -170,7 +176,11 @@ impl ConfigBuilder {
         let ctx = LoadContext { root, vars };
         let mut sections: HashMap<TypeId, (&'static str, Arc<dyn Any + Send + Sync>)> =
             HashMap::new();
-        for loader in &self.loaders {
+        let provided_ids: Vec<TypeId> = self.provided.iter().map(|(id, _, _)| *id).collect();
+        for (id, loader) in &self.loaders {
+            if provided_ids.contains(id) {
+                continue;
+            }
             match loader(&ctx) {
                 Ok((id, name, section)) => {
                     sections.insert(id, (name, section));
@@ -214,17 +224,24 @@ fn resolve_vars(
     };
 
     // The base `.env` can name the environment when the process doesn't.
-    let base = read_dotenv(&root.join(".env"), issues, &env_issue);
+    let mut base_issues = Vec::new();
+    let base = read_dotenv(&root.join(".env"), &mut base_issues, &env_issue);
     let name = forced
         .map(|environment| environment.to_string())
         .or_else(|| process.get("APP_ENV").cloned())
         .or_else(|| base.get("APP_ENV").cloned());
     let environment = environment_from(name.as_deref());
 
-    let specific = root.join(format!(".env.{environment}"));
-    let file_vars = if specific.is_file() {
+    // Only plain names select an environment file, so `APP_ENV` can't point at other paths.
+    let specific = Some(environment.to_string())
+        .filter(|name| is_plain_name(name))
+        .map(|name| root.join(format!(".env.{name}")))
+        .filter(|path| path.is_file());
+    let file_vars = if let Some(specific) = specific {
+        // `.env.<env>` replaces `.env`, so a broken `.env` is not this run's problem.
         read_dotenv(&specific, issues, &env_issue)
     } else {
+        issues.extend(base_issues);
         base
     };
 
@@ -234,6 +251,13 @@ fn resolve_vars(
         vars.insert("APP_ENV".into(), name);
     }
     (vars, environment)
+}
+
+fn is_plain_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
 fn read_dotenv(
@@ -282,7 +306,9 @@ fn load_section<T: ConfigSection>(ctx: &LoadContext) -> Result<T, Vec<ConfigIssu
             file_found = true;
             match text.parse::<Table>() {
                 Ok(parsed) => table = parsed,
-                Err(error) => issues.push(issue(None, &file, error.to_string())),
+                // Not `error.to_string()`: that quotes the offending source line, which may be
+                // a secret.
+                Err(error) => issues.push(issue(None, &file, parse_message(&text, &error))),
             }
         }
         Err(error) if error.kind() == ErrorKind::NotFound => {}
@@ -306,7 +332,6 @@ fn load_section<T: ConfigSection>(ctx: &LoadContext) -> Result<T, Vec<ConfigIssu
         }
     }
 
-    let mut secrets = Vec::new();
     for spec in T::fields() {
         let (Some(var), Some(coerce)) = (spec.env, spec.coerce) else {
             continue;
@@ -314,9 +339,6 @@ fn load_section<T: ConfigSection>(ctx: &LoadContext) -> Result<T, Vec<ConfigIssu
         let Some(raw) = ctx.vars.get(var) else {
             continue;
         };
-        if spec.secret && !raw.is_empty() {
-            secrets.push(raw.as_str());
-        }
         let source = format!("${var}");
         match coerce(raw) {
             Ok(Some(value)) => {
@@ -339,19 +361,33 @@ fn load_section<T: ConfigSection>(ctx: &LoadContext) -> Result<T, Vec<ConfigIssu
         return Err(issues);
     }
 
+    // Secrets from any source (file, default or environment) are masked in later messages.
+    let secrets: Vec<String> = T::fields()
+        .iter()
+        .filter(|spec| spec.secret)
+        .filter_map(|spec| table.get(spec.name))
+        .map(|value| match value {
+            Value::String(text) => text.clone(),
+            other => other.to_string(),
+        })
+        .filter(|text| !text.is_empty())
+        .collect();
     let origin = if file_found {
-        file.as_str()
+        file.clone()
     } else {
-        "environment and defaults"
+        format!(
+            "environment and defaults; no {file} under {}",
+            ctx.root.display()
+        )
     };
     let section: T = Value::Table(table)
         .try_into()
         .map_err(|error: toml::de::Error| {
             let mut message = error.message().to_owned();
             for secret in &secrets {
-                message = message.replace(secret, "[REDACTED]");
+                message = message.replace(secret.as_str(), "[REDACTED]");
             }
-            vec![issue(None, origin, message)]
+            vec![issue(None, &origin, message)]
         })?;
     section.check().map_err(|messages| {
         messages
@@ -360,6 +396,22 @@ fn load_section<T: ConfigSection>(ctx: &LoadContext) -> Result<T, Vec<ConfigIssu
             .collect::<Vec<_>>()
     })?;
     Ok(section)
+}
+
+/// `line 3, column 5: <message>` for a TOML syntax error, without the quoted source.
+fn parse_message(text: &str, error: &toml::de::Error) -> String {
+    let message = error.message();
+    let Some(span) = error.span() else {
+        return message.to_owned();
+    };
+    let before = &text[..span.start.min(text.len())];
+    let line = before.matches('\n').count() + 1;
+    let column = before
+        .rsplit('\n')
+        .next()
+        .map_or(0, |last| last.chars().count())
+        + 1;
+    format!("line {line}, column {column}: {message}")
 }
 
 struct Inner {
