@@ -350,10 +350,14 @@ fn files(options: &NewOptions) -> Vec<(String, String)> {
         ),
         None => ("", ""),
     };
+    // With a database, apply the migrations too, so a broken one fails the test suite.
     let health_context = if database.is_some() {
-        "AppContext::new(DatabasePool::connect_fresh(&database_url()).await.unwrap())"
+        format!(
+            "{{\n        let db = DatabasePool::connect_fresh(&database_url()).await.unwrap();\n        \
+             db.migrate(&{crate_name}::MIGRATOR).await.unwrap();\n        AppContext::new(db)\n    }}"
+        )
     } else {
-        "AppContext::default()"
+        "AppContext::default()".to_owned()
     };
     let vars = [
         ("name", options.name.as_str()),
@@ -361,7 +365,7 @@ fn files(options: &NewOptions) -> Vec<(String, String)> {
         ("default_database_url", default_database_url.as_str()),
         ("mailer", templates::MAILER.trim_end()),
         ("database_url_fn", database_url_fn),
-        ("health_context", health_context),
+        ("health_context", health_context.as_str()),
         ("database_notes", database_notes),
         ("data_rows", data_rows),
     ];

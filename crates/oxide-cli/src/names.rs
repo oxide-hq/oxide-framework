@@ -17,7 +17,34 @@ pub fn type_name(input: &str) -> Result<String, CliError> {
             "`{input}` is not a valid name; use letters, digits and underscores, starting with a letter"
         )));
     }
-    Ok(input.to_upper_camel_case())
+    let name = input.to_upper_camel_case();
+    if name == "Self" {
+        return Err(CliError::invalid(
+            "`Self` is a Rust keyword; pick another name",
+        ));
+    }
+    Ok(name)
+}
+
+/// Rust 2024 strict and reserved keywords: none of them can be a module or crate name.
+const KEYWORDS: &[&str] = &[
+    "abstract", "as", "async", "await", "become", "box", "break", "const", "continue", "crate",
+    "do", "dyn", "else", "enum", "extern", "false", "final", "fn", "for", "gen", "if", "impl",
+    "in", "let", "loop", "macro", "match", "mod", "move", "mut", "override", "priv", "pub", "ref",
+    "return", "self", "static", "struct", "super", "trait", "true", "try", "type", "typeof",
+    "unsafe", "unsized", "use", "virtual", "where", "while", "yield",
+];
+
+/// The module (and file) name for a type: `BlogPost` -> `blog_post`. Rejects keywords such as
+/// `type`, which can't follow `pub mod`, and `mod`, which would overwrite the parent `mod.rs`.
+pub fn module_name(type_name: &str) -> Result<String, CliError> {
+    let module = snake(type_name);
+    if KEYWORDS.contains(&module.as_str()) {
+        return Err(CliError::invalid(format!(
+            "`{type_name}` would make a module named `{module}`, which is a Rust keyword; pick another name"
+        )));
+    }
+    Ok(module)
 }
 
 /// `BlogPost` -> `blog_post`.
@@ -42,18 +69,8 @@ pub fn pluralize(word: &str) -> String {
     }
 }
 
-/// Names that can't be a new project: Rust keywords, standard crates and Oxide's own crates.
-const RESERVED: &[&str] = &[
-    "alloc",
-    "core",
-    "crate",
-    "oxide",
-    "proc-macro",
-    "self",
-    "std",
-    "super",
-    "test",
-];
+/// Names that can't be a new project besides keywords: standard crates and Oxide's own crate.
+const RESERVED: &[&str] = &["alloc", "core", "oxide", "proc-macro", "std", "test"];
 
 /// Checks a `oxide new` project name: kebab-case, usable as a Cargo package and a directory.
 pub fn project_name(input: &str) -> Result<(), CliError> {
@@ -68,7 +85,12 @@ pub fn project_name(input: &str) -> Result<(), CliError> {
             "`{input}` is not a valid project name; use kebab-case like `my-oxide-app`"
         )));
     }
-    if RESERVED.contains(&input) || input.starts_with("oxide-") {
+    // The crate name (`my_app`) is what generated code writes, as in `use my_app::AppContext`.
+    let crate_name = input.replace('-', "_");
+    if RESERVED.contains(&input)
+        || KEYWORDS.contains(&crate_name.as_str())
+        || input.starts_with("oxide-")
+    {
         return Err(CliError::invalid(format!(
             "`{input}` is reserved; pick another project name"
         )));
@@ -88,6 +110,19 @@ mod tests {
         assert!(type_name("2fast").is_err());
         assert!(type_name("blog-post").is_err());
         assert!(type_name("").is_err());
+        assert!(type_name("self").is_err());
+    }
+
+    #[test]
+    fn module_names_are_not_keywords() {
+        assert_eq!(module_name("BlogPost").unwrap(), "blog_post");
+        assert_eq!(module_name("TypeController").unwrap(), "type_controller");
+        for keyword in ["Type", "Mod", "Async", "Fn", "Gen"] {
+            assert!(
+                module_name(keyword).is_err(),
+                "{keyword} should be rejected"
+            );
+        }
     }
 
     #[test]
@@ -115,6 +150,9 @@ mod tests {
             "oxide",
             "oxide-cli",
             "test",
+            "async",
+            "type",
+            "self",
         ] {
             assert!(project_name(bad).is_err(), "{bad} should be rejected");
         }

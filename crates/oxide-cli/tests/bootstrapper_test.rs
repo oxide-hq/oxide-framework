@@ -200,6 +200,15 @@ fn make_commands_create_and_register_files() {
     assert!(error.contains("already exists; use --force"));
     succeeds(oxide(&app, &["make:model", "Comment", "--force"]));
     assert_eq!(read(&app, "src/models/mod.rs"), models);
+
+    // Forcing `-m` again rewrites the comments migration instead of adding a second one.
+    succeeds(oxide(&app, &["make:model", "Comment", "-m", "--force"]));
+    let migrations: Vec<_> = fs::read_dir(app.join("database/migrations"))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .filter(|name| name.ends_with("_create_comments_table.sql"))
+        .collect();
+    assert_eq!(migrations, ["0002_create_comments_table.sql"]);
 }
 
 #[test]
@@ -239,6 +248,13 @@ fn bad_input_fails_cleanly() {
     let minimal = new_app(&dir, "tiny-app", &["--preset", "minimal"]);
     assert!(fails(oxide(&minimal, &["make:model", "Comment"])).contains("has no database"));
     assert!(fails(oxide(&minimal, &["make:request", "bad-name"])).contains("not a valid name"));
+
+    // Names that would generate keywords: `pub mod type;`, `struct Self`, `use async::..`.
+    for name in ["Type", "Mod", "Self"] {
+        let error = fails(oxide(&minimal, &["make:request", name]));
+        assert!(error.contains("keyword"), "{name}: {error}");
+    }
+    assert!(fails(oxide(&dir, &["new", "async", "-n"])).contains("reserved"));
 }
 
 /// Runs `cargo test` in `app` with the workspace's lockfile and a shared target directory, so

@@ -125,38 +125,62 @@ pub fn make_model(
         ));
     }
     let model = names::type_name(name)?;
-    let module = names::snake(&model);
+    let module = names::module_name(&model)?;
     let table = names::pluralize(&module);
     let vars = [("model", model.as_str()), ("table", table.as_str())];
 
-    let path = PathBuf::from(format!("src/models/{module}.rs"));
-    write_new(project, &path, &render(templates::MODEL, &vars), force)?;
-    register_module(
-        &project.root.join("src/models/mod.rs"),
-        &format!("pub mod {module};"),
-        Some(&format!("pub use {module}::{model};")),
-    )?;
-    let mut created = vec![Created {
-        kind: "Model",
-        path,
-    }];
-
+    let mut planned = vec![(
+        "Model",
+        PathBuf::from(format!("src/models/{module}.rs")),
+        render(templates::MODEL, &vars),
+    )];
     if migration {
         let template = match project.database {
             ProjectDatabase::Postgres => templates::POSTGRES_TABLE,
             _ => templates::SQLITE_TABLE,
         };
-        let number = next_migration_number(&project.root.join("database/migrations"))?;
-        let path = PathBuf::from(format!(
-            "database/migrations/{number:04}_create_{table}_table.sql"
+        planned.push((
+            "Migration",
+            migration_path(&project.root, &table)?,
+            render(template, &vars),
         ));
-        write_new(project, &path, &render(template, &vars), force)?;
-        created.push(Created {
-            kind: "Migration",
-            path,
-        });
     }
+    // Check every file before writing any, so a refusal leaves the project untouched.
+    for (_, path, _) in &planned {
+        refuse_existing(project, path, force)?;
+    }
+
+    let mut created = Vec::new();
+    for (kind, path, contents) in planned {
+        write_new(project, &path, &contents, true)?;
+        created.push(Created { kind, path });
+    }
+    register_module(
+        &project.root.join("src/models/mod.rs"),
+        &format!("pub mod {module};"),
+        Some(&format!("pub use {module}::{model};")),
+    )?;
     Ok(created)
+}
+
+/// Where the `create_<table>_table` migration goes: the existing one if there is one (so
+/// `--force` replaces it rather than adding a second `CREATE TABLE`), else the next number.
+fn migration_path(root: &Path, table: &str) -> Result<PathBuf, CliError> {
+    let dir = root.join("database/migrations");
+    let suffix = format!("_create_{table}_table.sql");
+    if dir.exists() {
+        for entry in fs::read_dir(&dir).map_err(CliError::io(&dir))? {
+            let name = entry.map_err(CliError::io(&dir))?.file_name();
+            let name = name.to_string_lossy();
+            if name.ends_with(&suffix) {
+                return Ok(PathBuf::from("database/migrations").join(name.as_ref()));
+            }
+        }
+    }
+    let number = next_migration_number(&dir)?;
+    Ok(PathBuf::from(format!(
+        "database/migrations/{number:04}{suffix}"
+    )))
 }
 
 /// Creates `src/http/controllers/<name>_controller.rs` and registers it.
@@ -174,7 +198,7 @@ pub fn make_controller(
         ));
     }
     let controller = format!("{base}Controller");
-    let module = names::snake(&controller);
+    let module = names::module_name(&controller)?;
     let resource_path = names::pluralize(&names::snake(base));
     let vars = [
         ("controller", controller.as_str()),
@@ -202,7 +226,7 @@ pub fn make_controller(
 /// Creates `src/http/requests/<name>.rs` and registers it.
 pub fn make_request(project: &Project, name: &str, force: bool) -> Result<Vec<Created>, CliError> {
     let request = names::type_name(name)?;
-    let module = names::snake(&request);
+    let module = names::module_name(&request)?;
     let path = PathBuf::from(format!("src/http/requests/{module}.rs"));
     write_new(
         project,
@@ -221,6 +245,17 @@ pub fn make_request(project: &Project, name: &str, force: bool) -> Result<Vec<Cr
     }])
 }
 
+/// Fails if `relative` already exists under the project root, unless `force` is set.
+fn refuse_existing(project: &Project, relative: &Path, force: bool) -> Result<(), CliError> {
+    if !force && project.root.join(relative).exists() {
+        return Err(CliError::invalid(format!(
+            "{} already exists; use --force to overwrite it",
+            relative.display()
+        )));
+    }
+    Ok(())
+}
+
 /// Writes `relative` under the project root, refusing to overwrite unless `force` is set.
 fn write_new(
     project: &Project,
@@ -228,13 +263,8 @@ fn write_new(
     contents: &str,
     force: bool,
 ) -> Result<(), CliError> {
+    refuse_existing(project, relative, force)?;
     let path = project.root.join(relative);
-    if path.exists() && !force {
-        return Err(CliError::invalid(format!(
-            "{} already exists; use --force to overwrite it",
-            relative.display()
-        )));
-    }
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(CliError::io(parent))?;
     }
@@ -275,7 +305,7 @@ pub fn register_module(
     Ok(())
 }
 
-/// `source` with `mod_line` after the last `pub mod` (or the module docs) and `use_line` after
+/// `source` with `mod_line` after the last `pub mod` (or the module docs and inner attributes) and `use_line` after
 /// the last `pub use` (or at the end). Lines already present are left alone.
 pub fn with_module_lines(source: &str, mod_line: &str, use_line: Option<&str>) -> String {
     let mut lines: Vec<String> = source.lines().map(str::to_owned).collect();
@@ -285,9 +315,10 @@ pub fn with_module_lines(source: &str, mod_line: &str, use_line: Option<&str>) -
         if let Some(last) = lines.iter().rposition(|line| line.starts_with("pub mod ")) {
             lines.insert(last + 1, mod_line.to_owned());
         } else {
+            // Module docs and inner attributes (`#![allow(..)]`) must stay ahead of any item.
             let docs = lines
                 .iter()
-                .take_while(|line| line.starts_with("//!"))
+                .take_while(|line| line.starts_with("//!") || line.starts_with("#!["))
                 .count();
             let mut block = vec![mod_line.to_owned()];
             if docs > 0 {
@@ -334,6 +365,12 @@ mod tests {
         assert_eq!(
             with_module_lines("", "pub mod comment;", None),
             "pub mod comment;\n"
+        );
+
+        let attributes = "//! Models.\n#![allow(dead_code)]\n";
+        assert_eq!(
+            with_module_lines(attributes, "pub mod comment;", None),
+            "//! Models.\n#![allow(dead_code)]\n\npub mod comment;\n"
         );
     }
 
