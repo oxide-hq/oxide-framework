@@ -59,8 +59,15 @@ impl UploadedFile {
         &self.bytes
     }
 
+    /// Whether the content starts with a PNG, JPEG, GIF or WebP signature; the client's declared
+    /// type is not trusted.
     pub fn is_image(&self) -> bool {
-        self.mime.starts_with("image/")
+        let b = self.bytes.as_ref();
+        b.starts_with(b"\x89PNG\r\n\x1a\n")
+            || b.starts_with(&[0xFF, 0xD8, 0xFF])
+            || b.starts_with(b"GIF87a")
+            || b.starts_with(b"GIF89a")
+            || (b.len() > 12 && &b[..4] == b"RIFF" && &b[8..12] == b"WEBP")
     }
 
     /// Checks the file against `rules`; failures are a 422 on the field `field`.
@@ -132,14 +139,19 @@ impl FileRules {
 /// The parsed parts of a `multipart/form-data` body.
 #[derive(Debug, Default)]
 pub struct Uploads {
-    fields: HashMap<String, String>,
+    fields: HashMap<String, Vec<String>>,
     files: HashMap<String, Vec<UploadedFile>>,
 }
 
 impl Uploads {
     /// A text field.
     pub fn field(&self, name: &str) -> Option<&str> {
-        self.fields.get(name).map(String::as_str)
+        self.fields.get(name)?.last().map(String::as_str)
+    }
+
+    /// Every value of a repeated text field (`tags[]`).
+    pub fn field_all(&self, name: &str) -> &[String] {
+        self.fields.get(name).map_or(&[], Vec::as_slice)
     }
 
     /// The first file uploaded under `name`.
@@ -193,7 +205,9 @@ impl<S: Send + Sync> FromRequest<S> for Uploads {
                 _ => {
                     uploads
                         .fields
-                        .insert(name, String::from_utf8_lossy(&bytes).into_owned());
+                        .entry(name)
+                        .or_default()
+                        .push(String::from_utf8_lossy(&bytes).into_owned());
                 }
             }
         }
@@ -207,7 +221,11 @@ mod tests {
 
     #[test]
     fn names_are_sanitised_and_rules_apply() {
-        let file = UploadedFile::new("../../etc/Photo.PNG", "image/png", vec![0u8; 2048]);
+        let file = UploadedFile::new(
+            "../../etc/Photo.PNG",
+            "image/png",
+            [b"\x89PNG\r\n\x1a\n".as_slice(), &[0u8; 2048]].concat(),
+        );
         assert_eq!(file.name(), "Photo.PNG");
         assert_eq!(file.extension().as_deref(), Some("png"));
         assert!(file.is_image());
@@ -226,6 +244,8 @@ mod tests {
             file.validate("avatar", &FileRules::new().mimes(&["pdf"]))
                 .is_err()
         );
+        let fake = UploadedFile::new("a.png", "image/png", b"<html>".to_vec());
+        assert!(!fake.is_image());
         let text = UploadedFile::new(".env", "text/plain", vec![1u8]);
         assert_eq!(text.extension(), None);
         assert!(text.validate("doc", &FileRules::new().image()).is_err());

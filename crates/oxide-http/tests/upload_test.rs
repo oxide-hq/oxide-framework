@@ -63,7 +63,11 @@ async fn send(parts: &[Part<'_>]) -> (StatusCode, Value) {
 async fn files_and_fields_are_parsed_and_validated() {
     let (status, body) = send(&[
         ("title", None, b"Hi"),
-        ("avatar", Some(("a.png", "image/png")), b"123"),
+        (
+            "avatar",
+            Some(("a.png", "image/png")),
+            b"\x89PNG\r\n\x1a\n123",
+        ),
         ("photos[]", Some(("1.png", "image/png")), b"x"),
         ("photos[]", Some(("2.png", "image/png")), b"y"),
     ])
@@ -71,7 +75,7 @@ async fn files_and_fields_are_parsed_and_validated() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
         body,
-        json!({ "name": "a.png", "size": 3, "title": "Hi", "photos": 2 })
+        json!({ "name": "a.png", "size": 11, "title": "Hi", "photos": 2 })
     );
 
     let (status, _) = send(&[("avatar", Some(("a.txt", "text/plain")), b"123")]).await;
