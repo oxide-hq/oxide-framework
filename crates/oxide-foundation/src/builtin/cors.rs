@@ -120,7 +120,13 @@ impl Middleware for HandleCors {
                 .and_then(|value| value.to_str().ok())
                 .map(str::to_owned)
             else {
-                return next.run(request).await;
+                // Not a CORS request, but with specific origins the answer still depends on
+                // `Origin`, so caches must be told not to reuse it for cross-origin requests.
+                let mut response = next.run(request).await;
+                if !self.any_origin {
+                    append_vary(&mut response, "Origin");
+                }
+                return response;
             };
             let allowed = self.allows(&origin);
 

@@ -18,32 +18,37 @@ enum Transform {
 }
 
 /// Rewrites strings anywhere in a JSON value, leaving the subtrees under `except` keys alone.
-fn apply(value: &mut Value, transform: Transform, except: &[String]) {
+/// Returns whether anything changed.
+fn apply(value: &mut Value, transform: Transform, except: &[String]) -> bool {
     match value {
         Value::String(text) => match transform {
             Transform::Trim => {
                 let trimmed = text.trim();
-                if trimmed.len() != text.len() {
-                    *text = trimmed.to_owned();
+                if trimmed.len() == text.len() {
+                    return false;
                 }
+                *text = trimmed.to_owned();
+                true
             }
             Transform::EmptyToNull => {
-                if text.is_empty() {
-                    *value = Value::Null;
+                if !text.is_empty() {
+                    return false;
                 }
+                *value = Value::Null;
+                true
             }
         },
-        Value::Array(items) => items
-            .iter_mut()
-            .for_each(|item| apply(item, transform, except)),
-        Value::Object(map) => {
-            for (key, child) in map.iter_mut() {
-                if !except.iter().any(|skipped| skipped == key) {
-                    apply(child, transform, except);
-                }
+        Value::Array(items) => items.iter_mut().fold(false, |changed, item| {
+            apply(item, transform, except) | changed
+        }),
+        Value::Object(map) => map.iter_mut().fold(false, |changed, (key, child)| {
+            if except.iter().any(|skipped| skipped == key) {
+                changed
+            } else {
+                apply(child, transform, except) | changed
             }
-        }
-        _ => {}
+        }),
+        _ => false,
     }
 }
 
@@ -93,13 +98,20 @@ async fn rewrite(
             };
         }
     };
+    // Only a body that actually changes is re-serialized: otherwise the client's bytes (key
+    // order, number formatting) reach the handler exactly as sent.
     let rewritten = match serde_json::from_slice::<Value>(&bytes) {
         Ok(mut json) => {
-            apply(&mut json, transform, except);
-            serde_json::to_vec(&json).unwrap_or_else(|_| bytes.to_vec())
+            if apply(&mut json, transform, except) {
+                serde_json::to_vec(&json).unwrap_or_else(|_| bytes.to_vec())
+            } else {
+                bytes.to_vec()
+            }
         }
         Err(_) => bytes.to_vec(),
     };
+    // The body now has a known length; a leftover `Transfer-Encoding` would contradict it.
+    parts.headers.remove(header::TRANSFER_ENCODING);
     parts
         .headers
         .insert(header::CONTENT_LENGTH, HeaderValue::from(rewritten.len()));
@@ -107,25 +119,46 @@ async fn rewrite(
         .await
 }
 
-/// Trims whitespace from every string in a JSON request body, like Laravel's `TrimStrings`.
-///
-/// Passwords are left alone by default (`password`, `password_confirmation`,
-/// `current_password`); [`except`](Self::except) adds more keys. Only `application/json` bodies
-/// are rewritten.
+/// The key exceptions and body-size cap both JSON rewriters share.
 #[derive(Debug, Clone)]
-pub struct TrimStrings {
+struct Rules {
     except: Vec<String>,
     max_body: usize,
 }
 
-impl Default for TrimStrings {
-    fn default() -> Self {
+impl Rules {
+    fn new(except: &[&str]) -> Self {
         Self {
-            except: ["password", "password_confirmation", "current_password"]
-                .map(str::to_owned)
-                .to_vec(),
+            except: except.iter().map(|key| (*key).to_owned()).collect(),
             max_body: DEFAULT_MAX_BODY,
         }
+    }
+
+    fn except<I, S>(mut self, keys: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.except.extend(keys.into_iter().map(Into::into));
+        self
+    }
+}
+
+/// Trims whitespace from every string in a JSON request body, like Laravel's `TrimStrings`.
+///
+/// Passwords are left alone by default (`password`, `password_confirmation`,
+/// `current_password`); [`except`](Self::except) adds more keys. Only `application/json` bodies
+/// are rewritten, and a body with nothing to trim is passed on byte for byte.
+#[derive(Debug, Clone)]
+pub struct TrimStrings(Rules);
+
+impl Default for TrimStrings {
+    fn default() -> Self {
+        Self(Rules::new(&[
+            "password",
+            "password_confirmation",
+            "current_password",
+        ]))
     }
 }
 
@@ -136,19 +169,18 @@ impl TrimStrings {
 
     /// Leaves the values under these keys exactly as sent.
     #[must_use]
-    pub fn except<I, S>(mut self, keys: I) -> Self
+    pub fn except<I, S>(self, keys: I) -> Self
     where
         I: IntoIterator<Item = S>,
         S: Into<String>,
     {
-        self.except.extend(keys.into_iter().map(Into::into));
-        self
+        Self(self.0.except(keys))
     }
 
     /// The most bytes of JSON body to read (default 2 MiB); bigger bodies get `413`.
     #[must_use]
     pub fn max_body(mut self, bytes: usize) -> Self {
-        self.max_body = bytes;
+        self.0.max_body = bytes;
         self
     }
 }
@@ -164,8 +196,8 @@ impl Middleware for TrimStrings {
             request,
             next,
             Transform::Trim,
-            &self.except,
-            self.max_body,
+            &self.0.except,
+            self.0.max_body,
         ))
     }
 }
@@ -175,17 +207,11 @@ impl Middleware for TrimStrings {
 ///
 /// Register it after [`TrimStrings`] and a string of only spaces becomes `null` too.
 #[derive(Debug, Clone)]
-pub struct ConvertEmptyStringsToNull {
-    except: Vec<String>,
-    max_body: usize,
-}
+pub struct ConvertEmptyStringsToNull(Rules);
 
 impl Default for ConvertEmptyStringsToNull {
     fn default() -> Self {
-        Self {
-            except: Vec::new(),
-            max_body: DEFAULT_MAX_BODY,
-        }
+        Self(Rules::new(&[]))
     }
 }
 
@@ -196,18 +222,18 @@ impl ConvertEmptyStringsToNull {
 
     /// Leaves the values under these keys exactly as sent.
     #[must_use]
-    pub fn except<I, S>(mut self, keys: I) -> Self
+    pub fn except<I, S>(self, keys: I) -> Self
     where
         I: IntoIterator<Item = S>,
         S: Into<String>,
     {
-        self.except.extend(keys.into_iter().map(Into::into));
-        self
+        Self(self.0.except(keys))
     }
 
+    /// The most bytes of JSON body to read (default 2 MiB); bigger bodies get `413`.
     #[must_use]
     pub fn max_body(mut self, bytes: usize) -> Self {
-        self.max_body = bytes;
+        self.0.max_body = bytes;
         self
     }
 }
@@ -223,8 +249,8 @@ impl Middleware for ConvertEmptyStringsToNull {
             request,
             next,
             Transform::EmptyToNull,
-            &self.except,
-            self.max_body,
+            &self.0.except,
+            self.0.max_body,
         ))
     }
 }
@@ -244,7 +270,7 @@ mod tests {
             "age": 3,
             "empty": "",
         });
-        apply(&mut value, Transform::Trim, &["password".to_owned()]);
+        assert!(apply(&mut value, Transform::Trim, &["password".to_owned()]));
         assert_eq!(
             value,
             json!({
@@ -255,8 +281,14 @@ mod tests {
                 "empty": "",
             })
         );
-        apply(&mut value, Transform::EmptyToNull, &[]);
+        assert!(apply(&mut value, Transform::EmptyToNull, &[]));
         assert_eq!(value["empty"], Value::Null);
+        // A second pass has nothing left to do.
+        assert!(!apply(
+            &mut value,
+            Transform::Trim,
+            &["password".to_owned()]
+        ));
         assert_eq!(value["name"], "Ann");
     }
 }

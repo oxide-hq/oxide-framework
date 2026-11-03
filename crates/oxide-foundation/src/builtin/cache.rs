@@ -3,7 +3,8 @@ use oxide_http::__private::axum::http::{HeaderValue, Method, header};
 
 use crate::middleware::{Middleware, MiddlewareFuture, MwNext};
 
-/// Sets `Cache-Control` on successful `GET` and `HEAD` responses that don't set it themselves.
+/// Sets `Cache-Control` on successful `GET` and `HEAD` responses that don't set it themselves
+/// and don't set a cookie.
 ///
 /// ```ignore
 /// SetCacheHeaders::new().public().max_age(3600)   // Cache-Control: public, max-age=3600
@@ -88,6 +89,8 @@ impl Middleware for SetCacheHeaders {
             if cacheable
                 && response.status().is_success()
                 && !response.headers().contains_key(header::CACHE_CONTROL)
+                // A response that sets a cookie is personal: it must not be offered to caches.
+                && !response.headers().contains_key(header::SET_COOKIE)
                 && let Some(value) = self.value()
             {
                 response.headers_mut().insert(header::CACHE_CONTROL, value);

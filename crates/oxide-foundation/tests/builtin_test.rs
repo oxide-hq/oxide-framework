@@ -446,3 +446,58 @@ fn cors_config_has_sensible_defaults() {
     assert!(!cors.supports_credentials && cors.max_age == 0 && cors.exposed_headers.is_empty());
     assert!(HandleCors::new(&cors).is_ok());
 }
+
+#[tokio::test]
+async fn unchanged_bodies_reach_the_handler_byte_for_byte() {
+    let client = client(
+        Application::builder()
+            .middleware(TrimStrings::new())
+            .middleware(ConvertEmptyStringsToNull::new()),
+    )
+    .await;
+    // Key order, spacing and number formatting survive when nothing needs rewriting.
+    let body = r#"{ "z":1.50, "a":[1,2],"n":12345678901234567890123, "s":"ok" }"#;
+    let echoed = client
+        .post("/text")
+        .header("Content-Type", "application/json")
+        .body(body)
+        .send()
+        .await;
+    assert_eq!(echoed.text(), body);
+    // A chunked body that does change loses its Transfer-Encoding for a real Content-Length.
+    let changed = client
+        .post("/text")
+        .header("Content-Type", "application/json")
+        .header("Transfer-Encoding", "chunked")
+        .body(r#"{"a":" x "}"#)
+        .send()
+        .await;
+    assert_eq!(changed.text(), r#"{"a":"x"}"#);
+}
+
+async fn sets_cookie() -> impl IntoResponse {
+    ([("set-cookie", "session=1")], "x")
+}
+
+#[tokio::test]
+async fn personal_and_unrelated_responses_are_handled_safely() {
+    let routes = routes().route("/login", get(sets_cookie));
+    let app = Application::builder()
+        .middleware(SetCacheHeaders::new().public().max_age(60))
+        .middleware(HandleCors::new(&cors(&["https://app.test"], false)).unwrap())
+        .routes(routes)
+        .build()
+        .await
+        .unwrap();
+    let client = app.test_client();
+    let login = client.get("/login").send().await;
+    assert_eq!(
+        header(&login, "cache-control"),
+        None,
+        "a response that sets a cookie is never made public"
+    );
+    // Even without an Origin header the response varies on it, for the caches' sake.
+    let plain = client.get("/hello").send().await;
+    assert!(header(&plain, "vary").unwrap().contains("Origin"));
+    assert_eq!(header(&plain, "cache-control"), Some("public, max-age=60"));
+}
