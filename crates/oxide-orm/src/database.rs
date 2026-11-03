@@ -190,8 +190,10 @@ fn postgres_disabled() -> OrmError {
     configuration("PostgreSQL support needs the `postgres` feature of oxide-orm".into())
 }
 
-/// The URL without credentials, for error messages.
+/// The URL without credentials, for error messages: the query string and fragment (which can
+/// carry `password=`) are dropped and any `user:pass@` is masked.
 fn redact(url: &str) -> String {
+    let url = url.split(['?', '#']).next().unwrap_or_default();
     match (url.find("://"), url.rfind('@')) {
         (Some(scheme), Some(at)) if at > scheme => {
             format!("{}://***{}", &url[..scheme], &url[at..])
@@ -217,6 +219,10 @@ mod tests {
         );
         let error = Driver::from_url("mysql://root:secret@localhost/app").unwrap_err();
         assert!(error.to_string().contains("mysql://***@localhost/app"));
+        assert!(!error.to_string().contains("secret"));
+
+        let error = Driver::from_url("mysql://localhost/app?password=secret#frag").unwrap_err();
+        assert!(error.to_string().contains("`mysql://localhost/app`"));
         assert!(!error.to_string().contains("secret"));
     }
 }
