@@ -33,6 +33,7 @@
 mod application;
 mod container;
 mod exceptions;
+mod middleware;
 mod provider;
 
 pub use application::{Application, ApplicationBuilder};
@@ -40,6 +41,10 @@ pub use container::{Bindings, Container, Inject, ResolveError, Scope, ServiceKey
 pub use exceptions::{
     DefaultExceptionHandler, ErrorContext, ExceptionHandler, RequestInfo, default_render,
     default_report, default_should_report,
+};
+pub use middleware::{
+    FnMiddleware, Middleware, MiddlewareFuture, MwNext, Outcome, middleware_fn, route_middleware,
+    route_middleware_without,
 };
 pub use provider::{App, BootError, BootFuture, ServiceProvider};
 

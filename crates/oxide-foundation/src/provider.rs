@@ -32,6 +32,9 @@ pub enum BootError {
         provider: &'static str,
         source: Box<BootError>,
     },
+    /// A middleware alias or group is misconfigured (unknown name, a loop, a name used twice).
+    #[error("middleware: {0}")]
+    Middleware(String),
     #[error(transparent)]
     Resolve(#[from] ResolveError),
     #[error(transparent)]
