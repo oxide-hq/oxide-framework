@@ -31,12 +31,17 @@
 //!    are built once for the request); the response flows back out through the middleware.
 
 mod application;
+mod builtin;
 mod container;
 mod exceptions;
 mod middleware;
 mod provider;
 
 pub use application::{Application, ApplicationBuilder};
+pub use builtin::{
+    ConvertEmptyStringsToNull, CorsConfig, HandleCors, SecurityHeaders, SetCacheHeaders,
+    TrimStrings, TrustHosts, ValidatePostSize,
+};
 pub use container::{Bindings, Container, Inject, ResolveError, Scope, ServiceKey};
 pub use exceptions::{
     DefaultExceptionHandler, ErrorContext, ExceptionHandler, RequestInfo, default_render,

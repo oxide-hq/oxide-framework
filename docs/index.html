@@ -966,6 +966,23 @@ kbd {
   <h2>Order and priority</h2>
   <p>Middleware runs in the order you list it, outermost first. When one must always run before the others, override <code>priority()</code>: a higher number runs earlier, equal priorities keep their listed order, and it applies to global stacks and to each <code>route_middleware</code> list alike.</p>
 
+  <h2>Built-in middleware</h2>
+  <p>Each of these is an ordinary <code>Middleware</code>, registered globally with <code>.middleware(..)</code> or by name with <code>.alias(..)</code>.</p>
+  <table>
+    <thead><tr><th>Laravel</th><th>Oxide</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td><code>HandleCors</code></td><td><code>HandleCors::new(&amp;cors_config)?</code></td><td>Answers preflights and adds <code>Access-Control-*</code> headers for allowed origins. Configure it in <code>config/cors.toml</code> (<code>CorsConfig</code>). A wildcard origin with credentials is refused.</td></tr>
+      <tr><td><code>TrustHosts</code></td><td><code>TrustHosts::new(["example.com", "*.example.org"])</code></td><td><code>400</code> for any other <code>Host</code>.</td></tr>
+      <tr><td><code>TrimStrings</code></td><td><code>TrimStrings::new().except(["bio"])</code></td><td>Trims every string in JSON bodies, except passwords and the keys you list.</td></tr>
+      <tr><td><code>ConvertEmptyStringsToNull</code></td><td><code>ConvertEmptyStringsToNull::new()</code></td><td>Turns <code>""</code> in JSON bodies into <code>null</code>. List it after <code>TrimStrings</code> so blank-but-spaced strings become <code>null</code> too.</td></tr>
+      <tr><td><code>ValidatePostSize</code></td><td><code>ValidatePostSize::new(2 * 1024 * 1024)</code></td><td><code>413</code> for bodies over the limit, from <code>Content-Length</code> or while reading.</td></tr>
+      <tr><td>security headers</td><td><code>SecurityHeaders::new().hsts(31_536_000, true)</code></td><td><code>nosniff</code>, frame and referrer policies by default; add HSTS, CSP or others. Never overrides a header the handler set.</td></tr>
+      <tr><td><code>SetCacheHeaders</code></td><td><code>SetCacheHeaders::new().public().max_age(3600)</code></td><td><code>Cache-Control</code> on successful <code>GET</code>/<code>HEAD</code> responses that don't set one.</td></tr>
+      <tr><td><code>RequestId</code></td><td>built in</td><td><code>Application</code> already gives every request an id and an <code>X-Request-Id</code> header.</td></tr>
+    </tbody>
+  </table>
+  <p>The body-rewriting middleware read the whole JSON body (2 MiB by default; change it with <code>max_body</code>) and leave non-JSON and unparseable bodies for the handler to reject. Trusted proxies and maintenance mode are still to come.</p>
+
   <h2>Terminable middleware</h2>
   <p>Return <code>true</code> from <code>terminable()</code> and implement <code>terminate(&amp;Outcome)</code> to run work after the response is produced, such as recording metrics. It runs on a spawned task with the method, path, status and headers of the finished request, so it never slows the response and cannot change it.</p>
 </section>

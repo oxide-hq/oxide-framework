@@ -13,12 +13,13 @@ oxide-config.workspace = true
 oxide-log.workspace = true
 thiserror.workspace = true
 tower.workspace = true
+serde.workspace = true
 serde_json.workspace = true
+http-body-util.workspace = true
 tokio = { workspace = true, features = ["net"] }
 
 [dev-dependencies]
 tokio.workspace = true
-serde.workspace = true
 
 [lints]
 workspace = true
